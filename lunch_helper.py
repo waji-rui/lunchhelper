@@ -152,7 +152,7 @@ MONITORENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HMONI
 def check_single_instance():
     """检查是否为唯一实例，返回 (是否唯一, 互斥体句柄)"""
     handle = CreateMutexW(None, False, MUTEX_NAME)
-    if handle == 0:
+    if not handle:  # ctypes converts NULL to None
         return False, None
     if GetLastError() == ERROR_ALREADY_EXISTS:
         CloseHandle(handle)

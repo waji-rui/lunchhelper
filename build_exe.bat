@@ -99,7 +99,7 @@ set "PYI_ARGS=%PYI_ARGS% --noconfirm"
 REM Add DLL (use absolute path to avoid specpath issue)
 if exist "%DLL_NAME%" (
     echo [INFO] Including DLL: %DLL_NAME%
-    set "PYI_ARGS=%PYI_ARGS% --add-binary=%CD%\%DLL_NAME%;."
+    set "PYI_ARGS=%PYI_ARGS% --add-binary="%CD%\%DLL_NAME%;.""
 )
 
 REM Add icon if exists

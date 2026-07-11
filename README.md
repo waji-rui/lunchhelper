@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- **全屏锁屏**：利用 `CreateWindowInBand` API + UIAccess 令牌窃取，将窗口置于 UIACCESS band，覆盖开始菜单、触摸手势等大部分系统 UI。注意：任务管理器等 `ZBID_SYSTEM_TOOLS` band 窗口不在覆盖范围内，可能穿透锁屏
+- **全屏锁屏**：利用 `CreateWindowInBand` API + UIAccess 令牌窃取，将窗口置于 UIACCESS band，覆盖开始菜单、触摸手势等大部分系统 UI。注意：UIACCESS band 仅在 UIAccess 准备成功时生效，否则回退为普通置顶窗口。任务管理器等 `ZBID_SYSTEM_TOOLS` band 窗口不在覆盖范围内，可能穿透锁屏
 - **无需数字签名**：通过 winlogon.exe 令牌窃取技术尝试获取 UIAccess，无需购买代码签名证书（需要管理员权限，best-effort）
 - **无 UAC 也可运行**：`CreateWindowInBand` 是底层 API，即使 UAC 禁用也能尝试将窗口置于 UIACCESS band。若 DLL 加载失败或 API 不可用，自动回退到普通置顶模式
 - **AttachThreadInput 焦点窃取**：无论由何种方式启动，锁屏窗口都能正确获取焦点，解决自动化程序启动时按钮无响应的问题
@@ -170,7 +170,7 @@ Windows 10 将窗口分为多个 Z-Order Band：
 | **ctypes** | Python 标准库，调用 Windows API | Python 许可证 |
 | **configparser** | Python 标准库，INI 配置文件解析 | Python 许可证 |
 | **logging** | Python 标准库，日志系统 | Python 许可证 |
-| **PyInstaller** | 打包工具（仅构建时使用） | GPL |
+| **PyInstaller** | 打包工具（仅构建时使用） | GPLv2（含例外）+ Apache 2.0（部分文件） |
 
 ## 许可证
 

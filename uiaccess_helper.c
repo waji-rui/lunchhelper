@@ -479,7 +479,7 @@ static void LayoutKeypad(HWND hParent, HWND btns[12], int panelW, int panelH) {
             int x = startX + c * (BTN_W + BTN_GAP);
             int y = startY + r * (BTN_H + BTN_GAP);
             HWND btn = CreateWindowExW(0, L"BUTTON", labels[idx],
-                                       WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                       WS_CHILD | BS_PUSHBUTTON,
                                        x, y, BTN_W, BTN_H,
                                        hParent, (HMENU)(INT_PTR)(IDC_KEYPAD_BASE + idx),
                                        g_hInst, NULL);
@@ -561,15 +561,15 @@ static LOCK_WINDOW* CreateLockWindow(int x, int y, int w, int h) {
                                            lw->hUnlockPanel, NULL, g_hInst, NULL);
     SendMessageW(lw->hPasswordDisplay, WM_SETFONT, (WPARAM)fPwd, TRUE);
 
-    /* Keypad */
-    LayoutKeypad(lw->hUnlockPanel, lw->hKeypadBtns, w, h);
+    /* Keypad — parented to hWnd so BN_CLICKED reaches LockScreenWndProc */
+    LayoutKeypad(hWnd, lw->hKeypadBtns, w, h);
 
-    /* Return button */
+    /* Return button — parented to hWnd for same reason */
     HFONT fRet = CreateLockFont(14, FALSE);
     lw->hReturnBtn = CreateWindowExW(0, L"BUTTON", L"Back",
-                                     WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                     WS_CHILD | BS_PUSHBUTTON,
                                      w/2 - 70, h - 120, 140, 45,
-                                     lw->hUnlockPanel, NULL, (HMENU)(INT_PTR)IDC_RETURN_BTN, g_hInst, NULL);
+                                     hWnd, NULL, (HMENU)(INT_PTR)IDC_RETURN_BTN, g_hInst, NULL);
     SendMessageW(lw->hReturnBtn, WM_SETFONT, (WPARAM)fRet, TRUE);
 
     ShowWindow(lw->hUnlockPanel, SW_HIDE);
@@ -666,6 +666,13 @@ static void ShowUnlockMode(BOOL show) {
         if (g_windows[i].hSloganFrame) ShowWindow(g_windows[i].hSloganFrame, show ? SW_HIDE : SW_SHOW);
         if (g_windows[i].hUnlockBtn) ShowWindow(g_windows[i].hUnlockBtn, show ? SW_HIDE : SW_SHOW);
         if (g_windows[i].hUnlockPanel) ShowWindow(g_windows[i].hUnlockPanel, show ? SW_SHOW : SW_HIDE);
+        /* Keypad buttons and return button are direct children of hWnd, not hUnlockPanel */
+        for (int j = 0; j < 12; j++) {
+            if (g_windows[i].hKeypadBtns[j])
+                ShowWindow(g_windows[i].hKeypadBtns[j], show ? SW_SHOW : SW_HIDE);
+        }
+        if (g_windows[i].hReturnBtn)
+            ShowWindow(g_windows[i].hReturnBtn, show ? SW_SHOW : SW_HIDE);
     }
     if (show && g_windowCount > 0 && g_windows[0].hWnd) {
         g_inputLen = 0;
