@@ -569,7 +569,7 @@ static LOCK_WINDOW* CreateLockWindow(int x, int y, int w, int h) {
     lw->hReturnBtn = CreateWindowExW(0, L"BUTTON", L"Back",
                                      WS_CHILD | BS_PUSHBUTTON,
                                      w/2 - 70, h - 120, 140, 45,
-                                     hWnd, NULL, (HMENU)(INT_PTR)IDC_RETURN_BTN, g_hInst, NULL);
+                                     hWnd, (HMENU)(INT_PTR)IDC_RETURN_BTN, g_hInst, NULL);
     SendMessageW(lw->hReturnBtn, WM_SETFONT, (WPARAM)fRet, TRUE);
 
     ShowWindow(lw->hUnlockPanel, SW_HIDE);

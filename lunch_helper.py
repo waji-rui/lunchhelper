@@ -179,7 +179,7 @@ def run_as_admin(extra_args=None):
     params = ' '.join(f'"{a}"' for a in args)
     
     ret = ShellExecuteW(None, "runas", exe_path, params, None, SW_SHOW)
-    if ret <= 32:
+    if not ret or ret <= 32:
         return False
     return True
 
