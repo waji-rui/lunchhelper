@@ -40,12 +40,12 @@ if "%COMPILER%"=="" (
     echo [INFO] Detecting compiler...
     
     where cl.exe >nul 2>&1
-    if %ERRORLEVEL% EQU 0 (
+    if !ERRORLEVEL! EQU 0 (
         set "COMPILER=msvc"
         echo [INFO] MSVC detected (cl.exe)
     ) else (
         where gcc.exe >nul 2>&1
-        if %ERRORLEVEL% EQU 0 (
+        if !ERRORLEVEL! EQU 0 (
             set "COMPILER=mingw"
             echo [INFO] MinGW detected (gcc.exe)
         ) else (
@@ -99,7 +99,7 @@ if /i "%COMPILER%"=="msvc" (
     )
     
     :msvc_compile
-    if "%VCVARS_FOUND%"=="0" (
+    if "!VCVARS_FOUND!"=="0" (
         echo [WARN] Cannot auto-activate MSVC environment, trying cl.exe directly
         echo If compilation fails, please run vcvars64.bat manually
     )
@@ -107,7 +107,7 @@ if /i "%COMPILER%"=="msvc" (
     echo [BUILD] cl /LD /O2 /MT %SRC% /Fe:%OUT% /link user32.lib advapi32.lib shell32.lib comctl32.lib gdi32.lib
     cl /LD /O2 /MT %SRC% /Fe:%OUT% /link user32.lib advapi32.lib shell32.lib comctl32.lib gdi32.lib
     
-    if %ERRORLEVEL% EQU 0 (
+    if !ERRORLEVEL! EQU 0 (
         if exist "%OUT%" (
             echo.
             echo ============================================
@@ -134,7 +134,7 @@ if /i "%COMPILER%"=="mingw" (
     
     gcc -shared -O2 -static -o %OUT% %SRC% -luser32 -ladvapi32 -lshell32 -lcomctl32 -lgdi32
     
-    if %ERRORLEVEL% EQU 0 (
+    if !ERRORLEVEL! EQU 0 (
         if exist "%OUT%" (
             echo.
             echo ============================================

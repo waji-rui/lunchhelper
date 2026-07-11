@@ -384,11 +384,11 @@ class UIAccessHelper:
         注意：如果成功获取 UIAccess，此函数不会返回（进程会重启）。
         """
         if not self._loaded:
-            return -1  # DLL 未加载
+            return -1  # DLL not loaded
         try:
             return self.dll.PrepareForUIAccess()
         except Exception as e:
-            print(f"PrepareForUIAccess 调用失败: {e}")
+            print(f"PrepareForUIAccess call failed: {e}")
             return -1
 
     def install_keyboard_hook(self):
@@ -1035,8 +1035,7 @@ class LockScreen:
             pass
 
         # Use os._exit to ensure clean exit (skip finally/atexit that may hang)
-        import os as _os
-        _os._exit(0)
+        os._exit(0)
 
     def run(self):
         """Run lock screen"""

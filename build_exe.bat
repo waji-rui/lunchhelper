@@ -42,10 +42,10 @@ if %ERRORLEVEL% NEQ 0 (
 
 REM Check PyInstaller
 python -c "import PyInstaller" >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
+if !ERRORLEVEL! NEQ 0 (
     echo [INFO] Installing PyInstaller...
     pip install pyinstaller
-    if %ERRORLEVEL% NEQ 0 (
+    if !ERRORLEVEL! NEQ 0 (
         echo [ERROR] PyInstaller installation failed!
         echo Please run manually: pip install pyinstaller
         pause

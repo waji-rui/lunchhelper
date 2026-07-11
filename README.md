@@ -4,12 +4,12 @@
 
 ## 功能特性
 
-- **全屏锁屏**：利用 `CreateWindowInBand` API + UIAccess 令牌窃取，将窗口置于 UIACCESS band，覆盖任务管理器、开始菜单、触摸手势等一切系统窗口
-- **无需数字签名**：通过 winlogon.exe 令牌窃取技术获取 UIAccess，无需购买代码签名证书
-- **无 UAC 也可运行**：`CreateWindowInBand` 是底层 API，即使 UAC 禁用也能将窗口置于 UIACCESS band
+- **全屏锁屏**：利用 `CreateWindowInBand` API + UIAccess 令牌窃取，将窗口置于 UIACCESS band，覆盖开始菜单、触摸手势等大部分系统 UI。注意：任务管理器等 `ZBID_SYSTEM_TOOLS` band 窗口不在覆盖范围内，可能穿透锁屏
+- **无需数字签名**：通过 winlogon.exe 令牌窃取技术尝试获取 UIAccess，无需购买代码签名证书（需要管理员权限，best-effort）
+- **无 UAC 也可运行**：`CreateWindowInBand` 是底层 API，即使 UAC 禁用也能尝试将窗口置于 UIACCESS band。若 DLL 加载失败或 API 不可用，自动回退到普通置顶模式
 - **AttachThreadInput 焦点窃取**：无论由何种方式启动，锁屏窗口都能正确获取焦点，解决自动化程序启动时按钮无响应的问题
 - **定时解锁**：可配置锁定时长，倒计时归零自动解锁
-- **应急解锁**：6 位数字密码解锁，5 秒冷却防暴力破解
+- **应急解锁**：6 位数字密码解锁，5 秒冷却速率限制（每次输错需等待 5 秒才能重试）
 - **多显示器**：自动检测并覆盖所有显示器
 - **键盘拦截**：低级键盘钩子拦截 Alt+F4、Alt+Tab、Win 键等系统快捷键
 - **防撬锁**：单实例运行、窗口无边框、无关闭按钮、进程保护
@@ -35,7 +35,7 @@
 
 ## 目录结构
 
-```
+```text
 LunchHelper/
 ├── lunch_helper.py          # 主程序（Python）
 ├── uiaccess_helper.c         # UIAccess 辅助 DLL 源码（C）
@@ -56,7 +56,7 @@ LunchHelper/
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `lock_duration` | 10 | 锁定时长（秒），建议 30-600 |
-| `emergency_password` | 000000 | 应急解锁密码（6 位数字） |
+| `emergency_password` | 000000 | 应急解锁密码（6 位数字）。**请务必修改为自定义密码！** |
 | `log_retention_days` | 14 | 日志保存天数，0 表示不保存 |
 | `lock_slogan` | （空） | 锁屏标语，显示在锁屏中央 |
 
@@ -96,7 +96,7 @@ build_all.bat
 
 ### 架构概览
 
-```
+```text
 lunch_helper.py (Python)
   │
   ├── Config mode: tkinter GUI (配置界面)
@@ -132,11 +132,21 @@ Windows 10 将窗口分为多个 Z-Order Band：
 
 `CreateWindowInBand(ZBID_UIACCESS)` 直接将窗口放入 band 1，无需依赖 `SetWindowPos(HWND_TOPMOST)` 的 band 穿越机制。
 
-### 为什么无需数字签名和 UAC
+### 关于 UIAccess 和签名
 
-1. **UIAccess 令牌**：通过复制 winlogon.exe 的 SYSTEM 令牌并设置 `TokenUIAccess=1` 获取
+本程序尝试通过以下机制获取 UIAccess 窗口置顶，但均为 **best-effort（尽力而为）**，不保证在所有环境下都能成功：
+
+1. **UIAccess 令牌**：通过复制 winlogon.exe 的 SYSTEM 令牌并设置 `TokenUIAccess=1` 尝试获取（需要管理员权限）
 2. **CreateWindowInBand**：这是一个底层 API，即使令牌窃取失败（如 UAC 禁用），仍可尝试将窗口放入 UIACCESS band
-3. **降级策略**：如果 `CreateWindowInBand` 不可用，自动回退到 `CreateWindowEx` + `WS_EX_TOPMOST`
+3. **降级策略**：如果 `CreateWindowInBand` 不可用，自动回退到 `CreateWindowEx` + `WS_EX_TOPMOST`（普通置顶，无法覆盖系统 UI）
+4. **DLL 加载**：如果 `uiaccess_helper.dll` 缺失或加载失败，Python 端回退到 tkinter 锁屏界面
+
+| 失败场景 | 降级行为 |
+|----------|----------|
+| DLL 缺失 | 使用 tkinter 锁屏（普通置顶） |
+| CreateWindowInBand 不可用 | 使用 CreateWindowEx + WS_EX_TOPMOST |
+| AttachThreadInput 失败 | 锁屏窗口可能无法获取焦点 |
+| 非管理员运行 | 跳过 UIAccess 令牌窃取，尝试 CreateWindowInBand |
 
 ## 借物表 / 参考项目
 
