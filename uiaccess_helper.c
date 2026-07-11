@@ -217,7 +217,6 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             if (bAlt && vkCode == VK_SPACE)  { DebugPrint("Blocked: Alt+Space\n"); return 1; }
             if (bCtrl && vkCode == VK_ESCAPE && !bShift) { DebugPrint("Blocked: Ctrl+Esc\n"); return 1; }
             if (bCtrl && bShift && vkCode == VK_ESCAPE)  { DebugPrint("Blocked: Ctrl+Shift+Esc\n"); return 1; }
-            if (bCtrl && bAlt && vkCode == VK_DELETE)    { DebugPrint("Blocked: Ctrl+Alt+Del\n"); return 1; }
 
             if ((GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000)) {
                 if (vkCode == 'D' || vkCode == 'M' || vkCode == 'R' || vkCode == 'L')

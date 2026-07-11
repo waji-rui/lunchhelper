@@ -29,6 +29,9 @@ set "MAIN_SCRIPT=lunch_helper.py"
 set "DLL_NAME=uiaccess_helper.dll"
 set "ICON_NAME=lunch_helper.ico"
 
+REM Handle clean argument first, before prerequisite checks
+if /i "%~1"=="clean" goto :clean
+
 REM Check Python
 where python >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
@@ -71,7 +74,6 @@ if not exist "%DLL_NAME%" (
 REM Handle command line arguments
 set "BUILD_MODE=onefile"
 if /i "%~1"=="folder" set "BUILD_MODE=folder"
-if /i "%~1"=="clean" goto :clean
 
 REM Create logs directory
 if not exist "logs" mkdir logs

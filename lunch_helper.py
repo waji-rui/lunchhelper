@@ -163,15 +163,18 @@ def check_single_instance():
 # 管理员提权
 # ========================================================================
 
-def run_as_admin():
+def run_as_admin(extra_args=None):
     """以管理员权限重新启动当前程序"""
     if getattr(sys, 'frozen', False):
         exe_path = sys.executable
-        args = sys.argv[1:]
+        args = list(sys.argv[1:])
     else:
         exe_path = sys.executable
         script = os.path.abspath(sys.argv[0])
         args = [script] + sys.argv[1:]
+
+    if extra_args:
+        args.extend(extra_args)
 
     params = ' '.join(f'"{a}"' for a in args)
     
@@ -1093,7 +1096,7 @@ def launch_lock_screen():
         # Check admin rights
         if not is_admin():
             logger.info("Not running as admin, requesting elevation...")
-            if run_as_admin():
+            if run_as_admin(extra_args=['-lock']):
                 logger.info("Admin elevation requested, current process exiting")
                 sys.exit(0)
             else:
