@@ -284,21 +284,22 @@ class LogManager:
             datefmt='%Y-%m-%d %H:%M:%S'
         )
 
-        # 文件处理器（按天轮转）
-        log_file = self.log_dir / 'lunch_helper.log'
-        file_handler = TimedRotatingFileHandler(
-            log_file,
-            when='midnight',
-            interval=1,
-            backupCount=999,
-            encoding='utf-8'
-        )
-        file_handler.suffix = '%Y%m%d'
-        file_handler.setFormatter(formatter)
-        file_handler.setLevel(logging.DEBUG if self.debug else logging.INFO)
-        self.logger.addHandler(file_handler)
+        # 文件处理器（按天轮转），retention_days=0 时不写文件
+        if self.retention_days != 0:
+            log_file = self.log_dir / 'lunch_helper.log'
+            file_handler = TimedRotatingFileHandler(
+                log_file,
+                when='midnight',
+                interval=1,
+                backupCount=999,
+                encoding='utf-8'
+            )
+            file_handler.suffix = '%Y%m%d'
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(logging.DEBUG if self.debug else logging.INFO)
+            self.logger.addHandler(file_handler)
 
-        # 控制台处理器（调试模式）
+        # 控制台处理器（仅调试模式）
         if self.debug:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setFormatter(formatter)
@@ -1075,8 +1076,8 @@ def launch_lock_screen():
     log_manager = LogManager(get_log_dir(), retention_days, debug=is_debug)
     logger = log_manager.get_logger()
 
-    # Clean old logs
-    if not is_debug and retention_days > 0:
+    # Clean old logs (only in non-debug mode; clean_old_logs handles retention_days=0 correctly)
+    if not is_debug:
         log_manager.clean_old_logs()
 
     # Load UIAccess DLL

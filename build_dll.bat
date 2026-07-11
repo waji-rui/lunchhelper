@@ -39,24 +39,38 @@ REM ============================================================
 if "%COMPILER%"=="" (
     echo [INFO] Detecting compiler...
     
+    REM First check if cl.exe is already in PATH (e.g. from Developer Command Prompt)
     where cl.exe >nul 2>&1
     if !ERRORLEVEL! EQU 0 (
         set "COMPILER=msvc"
-        echo [INFO] MSVC detected (cl.exe)
+        echo [INFO] MSVC detected (cl.exe in PATH)
     ) else (
-        where gcc.exe >nul 2>&1
-        if !ERRORLEVEL! EQU 0 (
-            set "COMPILER=mingw"
-            echo [INFO] MinGW detected (gcc.exe)
+        REM cl.exe not in PATH; check for Visual Studio installation by looking for vcvars
+        set "VCVARS_DETECTED=0"
+        for %%v in (2022 2019 2017) do (
+            if exist "C:\Program Files\Microsoft Visual Studio\%%v\BuildTools\VC\Auxiliary\Build\vcvars64.bat" set "VCVARS_DETECTED=1"
+            if exist "C:\Program Files\Microsoft Visual Studio\%%v\Community\VC\Auxiliary\Build\vcvars64.bat" set "VCVARS_DETECTED=1"
+            if exist "C:\Program Files\Microsoft Visual Studio\%%v\Professional\VC\Auxiliary\Build\vcvars64.bat" set "VCVARS_DETECTED=1"
+            if exist "C:\Program Files\Microsoft Visual Studio\%%v\Enterprise\VC\Auxiliary\Build\vcvars64.bat" set "VCVARS_DETECTED=1"
+        )
+        if "!VCVARS_DETECTED!"=="1" (
+            set "COMPILER=msvc"
+            echo [INFO] MSVC detected (VS installation found, vcvars will be activated during build)
         ) else (
-            echo [ERROR] No compiler detected!
-            echo Please install one of the following:
-            echo   1. Visual Studio Build Tools (https://visualstudio.microsoft.com/downloads/)
-            echo      Then run: "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
-            echo   2. MinGW-w64 (https://www.mingw-w64.org/)
-            echo      Add its bin directory to PATH after installation
-            pause
-            exit /b 1
+            where gcc.exe >nul 2>&1
+            if !ERRORLEVEL! EQU 0 (
+                set "COMPILER=mingw"
+                echo [INFO] MinGW detected (gcc.exe)
+            ) else (
+                echo [ERROR] No compiler detected!
+                echo Please install one of the following:
+                echo   1. Visual Studio Build Tools (https://visualstudio.microsoft.com/downloads/)
+                echo      Then run: "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+                echo   2. MinGW-w64 (https://www.mingw-w64.org/)
+                echo      Add its bin directory to PATH after installation
+                pause
+                exit /b 1
+            )
         )
     )
 )
