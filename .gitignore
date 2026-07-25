@@ -1,0 +1,27 @@
+# ===== Build output =====
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+
+# ===== Visual Studio / IDE =====
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ===== Runtime-generated (per machine) =====
+config.json
+logs/
+*.log
+
+# ===== Secrets / test certs =====
+*.pfx
+*.p12
+SelfSignTest_output/
+
+# ===== OS junk =====
+Thumbs.db
+Desktop.ini
