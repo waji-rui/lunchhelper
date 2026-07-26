@@ -15,18 +15,30 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
+using System.Security.Principal;
 using System.Threading;
 using System.Windows.Forms;
 
 namespace LunchHelper
 {
     /// <summary>
-    /// 程序入口：解析启动参数、单实例互斥、分发运行模式、拉起守护进程。
+    /// 程序入口：解析启动参数、按需自提权、单实例互斥、分发运行模式、拉起守护进程。
     ///   无参数        -> 配置界面
     ///   -lock         -> 控制（锁屏）模式
     ///   -debug        -> 调试模式（配置界面 + 置顶控制台 + 详细日志且不自动删除）
     ///   -guardian pid -> 守护进程（由锁屏自动拉起，普通用户不应手动使用）
+    ///   -elevated     -> 内部标记：表示已尝试过提权，避免自提权时无限重拉
+    ///
+    /// 按需自提权（on-demand self-elevation）：
+    ///   uiAccess 置顶需“可信签名 +（受保护目录 OR 提权）”。
+    ///   锁屏/守护模式若发现当前既未提权、也不在受保护目录（如从 Downloads 双击），
+    ///   会自动以管理员重启用自身（弹一次 UAC）以获取 uiAccess。
+    ///   受保护目录用“当前用户能否写入 exe 所在目录”自适应判定（不硬编码路径，
+    ///   因此 D:\Program Files\ 或任何管理员写保护目录都能正确识别）。
+    ///   配置/调试模式不需要 uiAccess，不触发。
     /// </summary>
     static class Program
     {
@@ -42,6 +54,35 @@ namespace LunchHelper
             bool debug = Contains(args, "-debug");
             bool lockMode = Contains(args, "-lock");
             bool guardian = Contains(args, "-guardian");
+
+            // 按需自提权：锁屏/守护需要 uiAccess。
+            // uiAccess 生效 = 可信签名 +（受保护目录 OR 提权）。
+            // 若当前既未提权、也不在受保护目录（如从 Downloads 双击），则自动以管理员
+            // 重启用自身（仅弹一次 UAC），从而拿到 uiAccess；已尝试过提权（-elevated）
+            // 则不再重复拉起，避免死循环。配置/调试模式不需要 uiAccess，不触发。
+            if (NeedsUiAccess(lockMode, guardian) && !Contains(args, "-elevated") && !HasUiAccessPrivilege())
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = Application.ExecutablePath,
+                        Arguments = string.Join(" ", args) + " -elevated",
+                        Verb = "runas",
+                        UseShellExecute = true
+                    };
+                    Process.Start(psi);
+                    return; // 当前非提权实例退出，由提权副本继续
+                }
+                catch (Win32Exception)
+                {
+                    // 用户取消 UAC 或提权失败：无法获得完整锁屏，提示后退出
+                    MessageBox.Show(
+                        "未能获取管理员权限，无法获得完整锁屏（盖不严任务管理器）。\n请将本程序放入 Program Files，或右键“以管理员身份运行”。",
+                        "LunchHelper", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+            }
 
             if (guardian)
             {
@@ -113,6 +154,59 @@ namespace LunchHelper
                 if (string.Equals(a, target, StringComparison.OrdinalIgnoreCase))
                     return true;
             return false;
+        }
+
+        /// <summary>
+        /// 锁屏 / 守护模式需要 uiAccess 置顶；配置 / 调试模式不需要。
+        /// </summary>
+        private static bool NeedsUiAccess(bool lockMode, bool guardian) => lockMode || guardian;
+
+        /// <summary>
+        /// 当前进程是否已具备 uiAccess 特权：已提权，或位于受保护目录。
+        /// </summary>
+        private static bool HasUiAccessPrivilege() => IsElevated() || IsInSecureLocation();
+
+        /// <summary>
+        /// 是否以管理员身份运行（提权）。提权本身即可满足 uiAccess 的位置条件。
+        /// </summary>
+        private static bool IsElevated()
+        {
+            try { return new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator); }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// 自适应判定 exe 是否位于“受保护目录”：尝试在当前 exe 目录写入一个临时文件。
+        /// 若当前（标准）用户无权写入，说明该目录仅管理员可写 —— 即 Windows 认可的
+        /// 受保护目录（如 C:\Program Files、D:\Program Files 或任何管理员写保护目录）。
+        /// 不硬编码路径，因此在所有电脑、任意盘符下都能正确识别。
+        /// </summary>
+        private static bool IsInSecureLocation()
+        {
+            try
+            {
+                string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
+                if (string.IsNullOrEmpty(exeDir)) return false;
+                string probe = Path.Combine(exeDir, ".lh_writetest_" + Guid.NewGuid().ToString("N") + ".tmp");
+                using (var fs = new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    fs.WriteByte(0);
+                }
+                // 能写入 -> 标准用户可写 -> 不是受保护目录
+                try { File.Delete(probe); }
+                catch { /* 删除失败也无妨，仅判定用 */ }
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // 无权写入 -> 管理员写保护 -> 视为受保护目录
+                return true;
+            }
+            catch
+            {
+                // 其它异常（目录不存在等）-> 保守判定为非受保护
+                return false;
+            }
         }
 
         /// <summary>
