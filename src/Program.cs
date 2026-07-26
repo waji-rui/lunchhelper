@@ -55,12 +55,14 @@ namespace LunchHelper
             bool lockMode = Contains(args, "-lock");
             bool guardian = Contains(args, "-guardian");
 
-            // 按需自提权：锁屏/守护需要 uiAccess。
+            // 按需自提权：仅当配置了「启用 UI Access」时才尝试。
             // uiAccess 生效 = 可信签名 +（受保护目录 OR 提权）。
             // 若当前既未提权、也不在受保护目录（如从 Downloads 双击），则自动以管理员
             // 重启用自身（仅弹一次 UAC），从而拿到 uiAccess；已尝试过提权（-elevated）
             // 则不再重复拉起，避免死循环。配置/调试模式不需要 uiAccess，不触发。
-            if (NeedsUiAccess(lockMode, guardian) && !Contains(args, "-elevated") && !HasUiAccessPrivilege())
+            // 用户取消 UAC：静默降级为普通锁屏（不弹窗、不退出）。
+            bool enableUiAccess = ConfigManager.Load().EnableUiAccess;
+            if (enableUiAccess && NeedsUiAccess(lockMode, guardian) && !Contains(args, "-elevated") && !HasUiAccessPrivilege())
             {
                 try
                 {
@@ -76,11 +78,9 @@ namespace LunchHelper
                 }
                 catch (Win32Exception)
                 {
-                    // 用户取消 UAC 或提权失败：无法获得完整锁屏，提示后退出
-                    MessageBox.Show(
-                        "未能获取管理员权限，无法获得完整锁屏（盖不严任务管理器）。\n请将本程序放入 Program Files，或右键“以管理员身份运行”。",
-                        "LunchHelper", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
+                    // 用户取消 UAC：静默降级为普通锁屏（不弹窗、不退出）。
+                    // 不 return，让控制流自然落到下方的普通锁屏流程。
+                    Logger.Warn("用户取消提权，降级为普通锁屏（不盖任务管理器）");
                 }
             }
 

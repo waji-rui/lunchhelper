@@ -22,14 +22,17 @@ namespace LunchHelper
 {
     /// <summary>
     /// 自绘大字号数字触摸键盘（0-9），适用于无物理键盘的纯触控环境。
-    /// 输入满 6 位自动提交（类似手机 PIN）。防暴破锁定时可整体禁用。
+    /// 自由输入（上限 32 位），点击「确认」提交校验（类似手机 PIN）。
+    /// 防暴破锁定时可整体禁用（含「确认」按钮）。
     /// </summary>
     public class NumericPad : UserControl
     {
         private TextBox _display;
         private TableLayoutPanel _grid;
+        private Button _confirmBtn;
         private string _buffer = "";
         private bool _locked;
+        private const int MaxPin = 32; // 输入上限（对 PIN 近乎无限，仅防极端溢出）
 
         public event Action<string> CodeSubmitted;
 
@@ -79,8 +82,23 @@ namespace LunchHelper
             _grid.Controls.Add(MakeButton("0"), 1, 3);
             _grid.Controls.Add(MakeButton("清空", "CLR"), 2, 3);
 
+            _confirmBtn = new Button
+            {
+                Text = "确认",
+                Dock = DockStyle.Bottom,
+                Height = 56,
+                Font = new Font("Segoe UI", 24F, FontStyle.Bold),
+                BackColor = Color.FromArgb(0, 120, 215),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Margin = new Padding(0)
+            };
+            _confirmBtn.FlatAppearance.BorderSize = 0;
+            _confirmBtn.Click += (s, e) => Submit();
+
             this.Controls.Add(_grid);
             this.Controls.Add(_display);
+            this.Controls.Add(_confirmBtn);
 
             RefreshDisplay();
         }
@@ -116,16 +134,9 @@ namespace LunchHelper
             }
             else if (key.Length == 1 && char.IsDigit(key[0]))
             {
-                if (_buffer.Length < 6) _buffer += key;
+                if (_buffer.Length < MaxPin) _buffer += key;
             }
             RefreshDisplay();
-            if (_buffer.Length == 6)
-            {
-                // Force the 6th dot to paint immediately, then validate synchronously for an
-                // instant (phone-PIN) unlock — no timer delay between the last tap and the check.
-                _display.Update();
-                Submit();
-            }
         }
 
         private void Submit()
@@ -145,11 +156,12 @@ namespace LunchHelper
             RefreshDisplay();
         }
 
-        /// <summary>防暴破：锁定时禁用全部按键。</summary>
+        /// <summary>防暴破：锁定时禁用全部按键（含「确认」）。</summary>
         public void SetLocked(bool locked)
         {
             _locked = locked;
             foreach (Control c in _grid.Controls) c.Enabled = !locked;
+            if (_confirmBtn != null) _confirmBtn.Enabled = !locked;
         }
 
         public bool Locked => _locked;

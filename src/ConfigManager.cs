@@ -91,7 +91,8 @@ namespace LunchHelper
             {
                 LockSeconds = 10,
                 LogRetentionDays = 14,
-                Slogan = ""
+                Slogan = "",
+                PinLength = 6
             };
             string hash, salt;
             ComputePasswordHash("000000", out hash, out salt);
@@ -167,6 +168,14 @@ namespace LunchHelper
         [DataMember(Name = "slogan")]
         public string Slogan { get; set; } = "";
 
+        /// <summary>是否启用 UI Access 超级置顶（需提权/UAC 或受保护目录）。默认 false：以普通置顶锁屏。</summary>
+        [DataMember(Name = "enableUiAccess")]
+        public bool EnableUiAccess { get; set; } = false;
+
+        /// <summary>应急密码位数（4–12）。由配置界面设置密码时按实际位数推导；此处仅作合法范围兜底。</summary>
+        [DataMember(Name = "pinLength")]
+        public int PinLength { get; set; } = 6;
+
         /// <summary>将非法值修正为合法默认值，保证程序健壮性。</summary>
         public void Normalize()
         {
@@ -187,6 +196,7 @@ namespace LunchHelper
                 PasswordIterations = 100000;
             }
             if (Slogan == null) Slogan = "";
+            if (PinLength < 4 || PinLength > 12) PinLength = 6;
         }
     }
 }

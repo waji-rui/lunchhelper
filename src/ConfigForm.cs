@@ -36,6 +36,7 @@ namespace LunchHelper
         private Label _lblPwdHint;
         private NumericUpDown _numRetention;
         private TextBox _txtSlogan;
+        private CheckBox _chkUiAccess;
 
         public ConfigForm(bool debug)
         {
@@ -64,8 +65,8 @@ namespace LunchHelper
             };
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            table.RowCount = 7;
-            for (int i = 0; i < 7; i++)
+            table.RowCount = 8;
+            for (int i = 0; i < 8; i++)
                 table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             // 锁定时长
@@ -82,7 +83,7 @@ namespace LunchHelper
             table.Controls.Add(Label("应急解锁密码："), 0, 1);
             _txtPassword = new TextBox
             {
-                PasswordChar = '●', MaxLength = 6,
+                PasswordChar = '●', MaxLength = 12,
                 Font = new Font("Segoe UI", 16F), Height = 40, Width = 240,
                 TextAlign = HorizontalAlignment.Center
             };
@@ -95,7 +96,7 @@ namespace LunchHelper
             _txtPassword.TextChanged += (s, e) =>
             {
                 string cleaned = Regex.Replace(_txtPassword.Text, @"\D", "");
-                if (cleaned.Length > 6) cleaned = cleaned.Substring(0, 6);
+                if (cleaned.Length > 12) cleaned = cleaned.Substring(0, 12);
                 if (cleaned != _txtPassword.Text)
                 {
                     int sel = _txtPassword.SelectionStart;
@@ -107,7 +108,7 @@ namespace LunchHelper
 
             _lblPwdHint = new Label
             {
-                Text = "（仅 6 位纯数字；留空则保持原密码）",
+                Text = "（4–12 位纯数字；留空则保持原密码）",
                 Font = new Font("Segoe UI", 11F), ForeColor = Color.Gray,
                 AutoSize = true
             };
@@ -147,6 +148,17 @@ namespace LunchHelper
                 AutoSize = true
             };
             table.Controls.Add(lblSloganHint, 1, 6);
+
+            // UI Access 超级置顶开关
+            table.Controls.Add(Label("UI Access 超级置顶："), 0, 7);
+            _chkUiAccess = new CheckBox
+            {
+                Text = "启用（需提权/UAC 或放入 Program Files）",
+                Font = new Font("Segoe UI", 13F),
+                AutoSize = true,
+                Anchor = AnchorStyles.Left
+            };
+            table.Controls.Add(_chkUiAccess, 1, 7);
 
             this.Controls.Add(table);
 
@@ -201,6 +213,7 @@ namespace LunchHelper
             _numLock.Value = _cfg.LockSeconds;
             _numRetention.Value = _cfg.LogRetentionDays;
             _txtSlogan.Text = _cfg.Slogan;
+            _chkUiAccess.Checked = _cfg.EnableUiAccess;
             _txtPassword.Text = ""; // 出于安全，密码框始终留空（不回显）
         }
 
@@ -212,19 +225,21 @@ namespace LunchHelper
                 cfg.LockSeconds = (int)_numLock.Value;
                 cfg.LogRetentionDays = (int)_numRetention.Value;
                 cfg.Slogan = _txtSlogan.Text ?? "";
+                cfg.EnableUiAccess = _chkUiAccess.Checked;
 
                 string pwd = _txtPassword.Text;
                 if (pwd.Length > 0)
                 {
-                    if (!Regex.IsMatch(pwd, @"^\d{6}$"))
+                    if (!Regex.IsMatch(pwd, @"^\d{4,12}$"))
                     {
-                        MessageBox.Show("应急解锁密码必须为 6 位纯数字。", "配置错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        MessageBox.Show("应急解锁密码必须为 4–12 位纯数字。", "配置错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
                     ConfigManager.ComputePasswordHash(pwd, out var hash, out var salt);
                     cfg.PasswordHash = hash;
                     cfg.PasswordSalt = salt;
                     cfg.PasswordIterations = ConfigManager.DefaultIterations;
+                cfg.PinLength = pwd.Length;
                 }
 
                 ConfigManager.Save(cfg);
