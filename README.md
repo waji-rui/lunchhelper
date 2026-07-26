@@ -56,14 +56,24 @@
 
 ## 部署与 uiAccess 提示
 
-锁屏窗口使用 `uiAccess="true"` 清单，可置顶于几乎所有窗口之上。但 Windows 要求满足以下条件之一才会真正授予该特权：
+锁屏窗口的「超级置顶」依赖 `uiAccess="true"` 的应用程序清单，可置顶于几乎所有窗口之上。但该特权有严格的 Windows 启动要求，因此分两种构建：
 
-1. exe 位于受保护目录（如 `C:\Program Files\LunchHelper\`）；或
-2. exe 以受信任证书进行代码签名。
+| 构建类型 | manifest | 双击运行 | 能否盖任务管理器 |
+|---|---|---|---|
+| **本地 / 未签名预览版** | `uiAccess="false"`（默认） | ✅ 任意目录可启动 | ❌ 仅普通置顶 |
+| **SignPath 签名 Release** | `uiAccess="true"`（CI 自动开启） | 需放 `Program Files` 或开启开关后 UAC 提权 | ✅ 可覆盖 |
 
-若从 U 盘 / 桌面等普通目录直接运行（未签名），Windows 不会授予 uiAccess 特权，**程序仍可正常运行，仅退顶为普通置顶窗口**（仍会覆盖桌面与大部分窗口）。如需最强置顶效果，请将 `LunchHelper.exe` 放入 `Program Files` 或以代码签名。
+### 具体规则
 
-> **兼容性兜底**：若在未签名 / 非 `Program Files` 环境下出现启动报错，可将 `app.manifest` 中的 `uiAccess="true"` 改为 `uiAccess="false"` 后重新构建，程序即可正常启动（仅退化为普通置顶）。
+- **默认构建**：`uiAccess="false"`，从 `Downloads` / 桌面 / U 盘双击都能直接运行，退化为普通置顶窗口（仍能覆盖桌面与大部分窗口）。
+- **签名 Release**：GitHub Actions 会在构建前把 manifest 改成 `uiAccess="true"`；此时要获得完整超级置顶，还需满足：
+  1. exe 位于受保护目录（如 `C:\Program Files\LunchHelper\`）—— 双击即生效，无 UAC；或
+  2. 以管理员身份运行 —— 配置界面中的「UI Access 超级置顶」开关控制是否自动申请 UAC 提权。
+
+### 推荐用法
+
+- 想“双击即用、不弹 UAC”：使用默认构建，或将签名版放入 `Program Files`。
+- 想“从任意位置都获得最强置顶”：使用签名版，并开启「UI Access 超级置顶」开关（每次启动会弹一次 UAC）。
 
 ---
 

@@ -7,10 +7,11 @@
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
         <!--
           uiAccess=true 可使锁屏窗口置顶于几乎所有窗口之上，达到“控制屏幕”的效果。
-          前提：exe 须位于受保护目录（如 C:\Program Files）或以受信任证书进行代码签名，
-          否则 Windows 不会授予 uiAccess 特权——程序仍可正常运行，仅退化为普通置顶窗口。
+          前提：exe 须位于受保护目录（如 C:\Program Files）或以受信任证书进行代码签名。
+          本地/未签名构建默认 false，确保从任意目录双击即可运行；签名发布 CI 会
+          在构建前将其改为 true，使签名后的 Release 获得完整 uiAccess 置顶。
         -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="true" />
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

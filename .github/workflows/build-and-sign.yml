@@ -42,6 +42,10 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Enable uiAccess for signed release
+        run: |
+          (Get-Content app.manifest) -replace 'uiAccess="false"', 'uiAccess="true"' | Set-Content app.manifest -Encoding UTF8
+
       - name: Build (Release)
         run: msbuild LunchHelper.csproj /p:Configuration=Release /p:Platform="Any CPU"
 
