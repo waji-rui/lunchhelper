@@ -78,9 +78,9 @@ namespace LunchHelper
                 for (int c = 0; c < 3; c++)
                     _grid.Controls.Add(MakeButton(digits[idx++]), c, r);
 
-            _grid.Controls.Add(MakeButton("删除", "DEL"), 0, 3);
+            _grid.Controls.Add(MakeButton("清空", "CLR"), 0, 3);
             _grid.Controls.Add(MakeButton("0"), 1, 3);
-            _grid.Controls.Add(MakeButton("清空", "CLR"), 2, 3);
+            _grid.Controls.Add(MakeButton("删除", "DEL"), 2, 3);
 
             _confirmBtn = new Button
             {

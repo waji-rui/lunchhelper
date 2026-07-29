@@ -25,3 +25,13 @@ SelfSignTest_output/
 # ===== OS junk =====
 Thumbs.db
 Desktop.ini
+
+# ===== 本地 MD3 设计规范媒体（第三方文档截图，个人本地参考，勿提交） =====
+docs/media/
+download_md3_media.py
+
+# 设计规范本身也仅本地参考、暂不提交
+docs/MD3设计规范.md
+
+# ===== Python 缓存（脚本生成的字节码，非源码） =====
+__pycache__/

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>设置 · LunchHelper</title>
+<style id="md3-tokens">/*CSS_TOKENS*/</style>
+<style id="md3-components">/*CSS_COMPONENTS*/</style>
+</head>
+<body>
+<div class="app">
+  <div class="overlay" id="overlay"></div>
+
+  <!-- 左侧导航栏：导航项即页面，横线分隔「配置类」与「关于」 -->
+  <aside class="sidebar" id="sidebar">
+    <div class="nav-title">LunchHelper</div>
+    <nav>
+      <a class="nav-item active" data-target="basic" data-label="基本"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></span>基本</a>
+      <a class="nav-item" data-target="backup" data-label="备份与恢复"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 12c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2zm-2-9c-4.97 0-9 4.03-9 9H0l4 4 4-4H5c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.51 0-2.91-.48-4.06-1.3l-1.42 1.44C8.04 20.3 9.94 21 12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9z"/></svg></span>备份与恢复</a>
+      <div class="nav-divider"></div>
+      <a class="nav-item" data-target="about" data-label="关于"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg></span>关于</a>
+    </nav>
+  </aside>
+
+  <!-- 主内容区 -->
+  <main class="main">
+  <div class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="打开菜单"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg></button>
+    <div class="topbar-title" id="topbarTitle">基本</div>
+  </div>
+
+  <div class="content" id="content">
+    <!-- 基本页：原 基本 + 安全 合并（5 张卡片） -->
+    <section id="basic" class="page active">
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg></div>
+        <div class="text">
+          <div class="t">锁定时长</div>
+          <div class="s">设备空闲多久后自动锁定（秒）</div>
+        </div>
+        <div class="ctl"><input id="lockSeconds" class="field" type="number" inputmode="numeric" min="1" max="3600" /></div>
+      </div>
+
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM9 11H7V9h2v2zm4 0h-2V9h2v2zm4 0h-2V9h2v2z"/></svg></div>
+        <div class="text">
+          <div class="t">锁屏标语</div>
+          <div class="s">留空则显示“设备已锁定”</div>
+        </div>
+        <div class="ctl"><input id="slogan" class="field" type="text" maxlength="40" placeholder="设备已锁定" /></div>
+      </div>
+
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg></div>
+        <div class="text">
+          <div class="t">日志保存上限</div>
+          <div class="s">0 表示不保存任何日志（天）</div>
+        </div>
+        <div class="ctl"><input id="logRetentionDays" class="field" type="number" inputmode="numeric" min="0" max="3650" /></div>
+      </div>
+
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg></div>
+        <div class="text">
+          <div class="t">应急解锁密码</div>
+          <div class="s" id="pwHint">4–12 位纯数字；留空则保持原密码</div>
+        </div>
+        <div class="ctl"><input id="password" class="field" type="password" inputmode="numeric" autocomplete="off" placeholder="留空保持不变" /></div>
+      </div>
+
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg></div>
+        <div class="text">
+          <div class="t">UI Access 超级置顶</div>
+          <div class="s">启用后需 UAC 提权，或放入 Program Files 运行</div>
+        </div>
+        <div class="ctl">
+          <label class="switch">
+            <input id="enableUiAccess" type="checkbox" />
+            <span class="track"><span class="thumb"></span></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 备份与恢复页 -->
+    <section id="backup" class="page">
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 12c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2zm-2-9c-4.97 0-9 4.03-9 9H0l4 4 4-4H5c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.51 0-2.91-.48-4.06-1.3l-1.42 1.44C8.04 20.3 9.94 21 12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9z"/></svg></div>
+        <div class="text">
+          <div class="t">恢复默认设置</div>
+          <div class="s">将所有配置恢复为默认值</div>
+        </div>
+        <div class="ctl"><button class="btn secondary" id="btnReset">恢复默认</button></div>
+      </div>
+    </section>
+
+    <!-- 关于页：内联全部关于内容，不再打开独立窗口 -->
+    <section id="about" class="page">
+      <div class="about-block">
+        <div class="about-name" id="aboutName">LunchHelper</div>
+        <div class="about-version" id="aboutVersion">v1.0.0</div>
+        <p class="about-desc">一个面向纯触控设备的锁屏小工具：到点（或手动）锁定屏幕，倒计时结束后自动解锁；支持应急密码解锁与防撬锁。</p>
+        <p class="about-meta">作者：LunchHelper Contributors</p>
+        <p class="about-meta">许可证：GNU General Public License v3.0（GPL-3.0）</p>
+        <p class="about-meta">本程序为自由软件，你可以自由使用、修改与再分发；但 WITHOUT ANY WARRANTY（不提供任何担保）。</p>
+      </div>
+    </section>
+  </div>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // C# 注入的当前配置
+  window.applyConfig = function (cfg) {
+    if (!cfg) return;
+    // 跟随 Windows“显示动画”设置：false 时给 <html> 加 no-anim，全局禁用过渡/动画
+    if (cfg.animations === false) document.documentElement.classList.add("no-anim");
+    else document.documentElement.classList.remove("no-anim");
+    $("lockSeconds").value = cfg.lockSeconds;
+    $("logRetentionDays").value = cfg.logRetentionDays;
+    $("slogan").value = cfg.slogan || "";
+    $("enableUiAccess").checked = !!cfg.enableUiAccess;
+    $("password").value = "";
+    // MD3 动态配色：把 C# 从 Windows 强调色生成的整套角色注入 CSS 变量
+    var themeVars = ["accent", "on-accent", "accent-container", "on-accent-container",
+      "surface", "on-surface", "surface-container", "surface-container-high", "surface-container-highest",
+      "surface-variant", "on-surface-variant", "outline"];
+    themeVars.forEach(function (name) {
+      if (cfg[name]) document.documentElement.style.setProperty("--" + name, cfg[name]);
+    });
+    if (cfg.about) {
+      if (cfg.about.appName) $("aboutName").textContent = cfg.about.appName;
+      if (cfg.about.version) $("aboutVersion").textContent = "v" + cfg.about.version;
+    }
+    if (cfg.minPin && cfg.maxPin) {
+      $("pwHint").textContent = cfg.minPin + "–" + cfg.maxPin + " 位纯数字；留空则保持原密码";
+      $("password").maxLength = cfg.maxPin;
+      $("password").setAttribute("data-min", cfg.minPin);
+      $("password").setAttribute("data-max", cfg.maxPin);
+    }
+  };
+
+  function toast(msg, isErr) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (isErr ? " err" : "");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { t.className = "toast"; }, 2600);
+  }
+  window.onSaved = function (res) {
+    if (res && res.ok) {
+      if (!res.silent) toast(res.msg || "配置已保存。");
+      $("password").value = "";
+    } else { toast((res && res.error) || "操作失败。", true); }
+  };
+
+  function post(obj) {
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(JSON.stringify(obj));
+  }
+
+  function gather() {
+    return {
+      lockSeconds: $("lockSeconds").value,
+      logRetentionDays: $("logRetentionDays").value,
+      slogan: $("slogan").value,
+      enableUiAccess: $("enableUiAccess").checked,
+      password: $("password").value
+    };
+  }
+
+  // 实时保存：任意配置项 change（失焦/回车/开关切换）即提交，无需「保存」按钮。
+  // silent=true 时成功不弹 toast（避免每次改动都闪提示）；校验失败始终弹错误。
+  function save(silent) {
+    var d = gather();
+    if (d.password && d.password.length > 0) {
+      if (!/^\d+$/.test(d.password)) { toast("应急解锁密码必须为纯数字。", true); return; }
+      var min = parseInt($("password").getAttribute("data-min") || "4", 10);
+      var max = parseInt($("password").getAttribute("data-max") || "12", 10);
+      if (d.password.length < min || d.password.length > max) {
+        toast("应急解锁密码必须为 " + min + "–" + max + " 位。", true); return;
+      }
+    }
+    post({ cmd: "save", data: d, silent: silent === true });
+  }
+
+  // 侧边栏导航：导航项即页面，点击切换可见页（非滚动）
+  function setActiveNav(targetId) {
+    document.querySelectorAll(".nav-item").forEach(function (item) {
+      item.classList.toggle("active", item.getAttribute("data-target") === targetId);
+    });
+  }
+
+  // 切换页面：仅 active 页可见，并同步顶部标题；每页从顶部开始
+  function showPage(targetId) {
+    document.querySelectorAll(".page").forEach(function (p) {
+      p.classList.toggle("active", p.id === targetId);
+    });
+    var item = document.querySelector('.nav-item[data-target="' + targetId + '"]');
+    if (item) $("topbarTitle").textContent = item.getAttribute("data-label") || item.textContent.trim();
+    $("content").scrollTop = 0;
+  }
+
+  function openSidebar() {
+    $("sidebar").classList.add("open");
+    $("overlay").classList.add("show");
+  }
+  function closeSidebar() {
+    $("sidebar").classList.remove("open");
+    $("overlay").classList.remove("show");
+  }
+
+  // 实时保存：每个配置项 change 即提交（silent，成功不闪提示）
+  ["lockSeconds", "logRetentionDays", "slogan", "password", "enableUiAccess"].forEach(function (id) {
+    var el = $(id);
+    if (el) el.addEventListener("change", function () { save(true); });
+  });
+  // 恢复默认是显式动作，保留独立按钮与成功提示
+  $("btnReset").addEventListener("click", function () { post({ cmd: "reset" }); });
+
+  $("menuBtn").addEventListener("click", openSidebar);
+  $("overlay").addEventListener("click", closeSidebar);
+
+  document.querySelectorAll(".nav-item").forEach(function (item) {
+    item.addEventListener("click", function (e) {
+      e.preventDefault();
+      var target = item.getAttribute("data-target");
+      setActiveNav(target);
+      showPage(target);
+      closeSidebar();
+    });
+  });
+
+  // 从移动端（抽屉展开）回到桌面宽（CSS 断点 min-width:45rem）时，
+  // 自动收起抽屉，避免最大化/拖拽放大后出现"桌面布局 + 半透明罩层"的怪状态。
+  window.matchMedia("(min-width: 45rem)").addEventListener("change", function (e) {
+    if (e.matches && $("sidebar").classList.contains("open")) closeSidebar();
+  });
+
+  // 启动后向 C# 请求当前配置
+  post({ cmd: "ready" });
+</script>
+</body>
+</html>

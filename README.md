@@ -3,8 +3,9 @@
 > 面向纯触控设备（无键盘鼠标）的轻量级锁屏助手：手动（或到点）锁定屏幕，倒计时结束后自动解锁；支持应急密码解锁与防撬锁。
 
 - **许可证**：GNU General Public License v3.0（GPL-3.0）。本仓库代码均以此为许可发布，可自由使用、修改、再分发，但须以相同许可证开源。详见 [`LICENSE`](LICENSE)。
-- **运行环境**：Windows 10 / 11 64 位，唯一运行时依赖为系统自带的 **.NET Framework 4.8**（Windows 10 1903+ 与 Windows 11 已预装，无需额外安装；个别精简系统若缺失，首次运行会由系统引导下载安装）。本项目**零第三方依赖**。
-- **语言**：C# / WinForms，单文件可执行（`LunchHelper.exe`）。
+- **运行环境**：Windows 10 / 11 64 位。系统级依赖为 **.NET Framework 4.8**（Windows 10 1903+ 与 Windows 11 已预装；个别精简系统若缺失，首次运行会由系统引导下载安装）；配置界面渲染依赖系统已装的 **Microsoft Edge WebView2 Runtime**（Win11 预装、多数 Win10 已装，缺失时配置页会给出提示而非白屏）。
+- **依赖立场**：标准库与 Windows 系统能力之外，仅引入**一个**经 GPL-3.0 兼容审查的第三方组件 —— `Microsoft.Web.WebView2`（MIT 许可）。详见 [第三方组件与署名](#第三方组件与署名) 与 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
+- **语言**：C# / WinForms，单文件可执行（`LunchHelper.exe`；WebView2 以 Evergreen 方式使用系统运行时，不打包引擎）。
 
 ---
 
@@ -100,7 +101,7 @@
 ### 方式二：build.bat
 双击 `build.bat`。脚本通过 `vswhere` 自动定位本机任意版本的 Visual Studio（包括 VS2026/2022/2019 及自定义安装路径）并调用其 MSBuild，找不到时给出清晰提示。
 
-> 说明：本工程为经典 .csproj，目标框架 .NET Framework 4.8，使用 WinForms 与系统自带能力，**不依赖任何第三方库**，因此天然兼容 GPL-3.0（无传染性冲突的第三方依赖）。
+> 说明：本工程为经典 .csproj，目标框架 .NET Framework 4.8，使用 WinForms 与系统自带能力；唯一的第三方 NuGet 包为 `Microsoft.Web.WebView2`（MIT 许可，GPL-3.0 兼容），其署名见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 
 ---
 
@@ -118,7 +119,7 @@ LunchHelper/
 │   ├── NativeMethods.cs    # 窗口/控制台相关 P/Invoke
 │   ├── LockSignal.cs       # 锁屏↔守护进程的解锁信号（标记文件）
 │   ├── ConsoleHelper.cs    # 调试模式控制台分配与置顶
-│   ├── ConfigManager.cs    # 配置读写、默认值、SHA-256 密码哈希
+│   ├── ConfigManager.cs    # 配置读写、默认值、PBKDF2-HMAC-SHA256 密码哈希（每安装随机盐）
 │   ├── Logger.cs           # 日志（logs/ 按天滚动、调试模式详细且不删除）
 │   ├── AntiTamper.cs       # 键盘钩子屏蔽快捷键（Win/Alt+Tab/Ctrl+Esc 等）
 │   ├── Guardian.cs         # 守护进程（监视并重启锁屏）
@@ -129,6 +130,19 @@ LunchHelper/
 ├── config.json             # 运行时生成（与 exe 同目录）
 └── logs/                   # 日志目录（运行时生成）
 ```
+
+---
+
+## 第三方组件与署名
+
+本项目在标准库与 Windows 系统能力之外，仅引入一个第三方组件，其许可与署名见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)：
+
+| 组件 | 版本 | 许可 | 用途 |
+|---|---|---|---|
+| Microsoft.Web.WebView2 | 1.0.4078.44 | MIT（GPL-3.0 兼容） | 配置界面离线 HTML 渲染（Evergreen，依赖系统 WebView2 Runtime） |
+| Material Design 3 设计令牌 | — | Google Material Design 规范 | 配置界面颜色角色 / 形状 / 字体 / 动效令牌数值（仅采用公开常量，未包含或改编其库代码） |
+
+> 除 WebView2 外，本项目**不打包、不改编**任何第三方库源码；组件（开关、按钮、卡片等）均为自行实现，符合“零第三方源码依赖”的立场。
 
 ---
 

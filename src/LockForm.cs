@@ -231,6 +231,15 @@ namespace LunchHelper
         {
             if (_exiting || _pad.Locked) return;
 
+            // 彩蛋：短于最小长度下限的输入在数学上永远不可能命中真实密码（密码强制 4–12 位），
+            // 视作误触——静默清空、不冻结、不写日志，可像手机 PIN 一样连续点「确认」玩耍。
+            // 安全红线：阈值必须用公开常量 MinPinLength，绝不可用实际 PinLength，否则会泄露真实密码位数。
+            if (code.Length < ConfigManager.MinPinLength)
+            {
+                _pad.Clear();
+                return;
+            }
+
             // Verify on a background thread so the UI never freezes during the
             // (still non-trivial) PBKDF2 computation. Keep the 6 dots visible and
             // show a "verifying" hint until the result comes back on the UI thread.

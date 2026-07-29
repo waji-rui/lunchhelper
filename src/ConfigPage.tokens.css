@@ -1,0 +1,57 @@
+  /* ---- MD3 深色主题色板（与 C# 端 ConfigManager 取色一致） ---- */
+  :root {
+    /* ===== MD3 暗色角色（官方精确 baseline，source #6750A4）=====
+       取自 Material Design 3 官方 baseline 暗色角色（material-color-utilities 常量）。
+       实际运行由 C# 从 Windows 强调色生成并覆盖（见 GenerateMd3DarkScheme），
+       此处为权威静态兜底。
+
+       本文件为「设计令牌层」，是主题/插件系统的主要覆盖面：
+       换肤只需替换本文件（或运行时注入一段新的 :root 覆盖），
+       组件样式（ConfigPage.components.css）无需改动。 */
+    --surface: #1C1B1F;
+    --surface-container: #211F26;
+    --surface-container-high: #2B2930;
+    --surface-container-highest: #36343B;
+    --surface-variant: #49454F;
+    --on-surface: #E6E1E5;
+    --on-surface-variant: #CAC4D0;
+    --outline: #938F99;
+    --outline-variant: #49454F;
+    --error: #F2B8B5;
+    --on-error: #601410;
+    --accent: #D0BCFF;                    /* primary，由 C# 注入系统强调色覆盖 */
+    --on-accent: #381E72;                 /* on-primary */
+    --accent-container: #4F378B;          /* primary-container */
+    --on-accent-container: #EADDFF;       /* on-primary-container */
+
+    /* ===== MD3 形状尺度（shape scale, dp）===== */
+    --shape-xs: 4px;                      /* extra-small */
+    --shape-s: 8px;                       /* small */
+    --shape-m: 12px;                      /* medium */
+    --shape-l: 16px;                      /* large */
+    --shape-xl: 28px;                     /* extra-large */
+    --shape-full: 9999px;                 /* full（按钮/开关/图标按钮为全圆角） */
+
+    /* ===== MD3 字体比例（type scale）=====
+       以 16px(=1rem) 为基准换算成 rem，跟随系统文本缩放（MD3 sp 行为），
+       避免大字号缩放下文字被挤小/截断。括号内为 @16px 等效 px，仅供审计。
+       形状令牌（--shape-*）仍为 px，因圆角属物理形状不应随字号缩放（见上方注释）。 */
+    --md-title-large: 1.375rem;  --md-title-large-weight: 500;  /* 22px */
+    --md-title-medium: 1rem;     --md-title-medium-weight: 500; /* 16px */
+    --md-body-large: 1rem;       --md-body-large-line: 1.5rem;  /* 16px / 24px */
+    --md-body-medium: 0.875rem;  --md-body-medium-line: 1.25rem;/* 14px / 20px */
+    --md-label-large: 0.875rem;  --md-label-large-weight: 500;  /* 14px */
+    --md-label-medium: 0.75rem;  --md-label-medium-weight: 500; /* 12px */
+
+    /* ===== MD3 动效令牌（motion tokens）===== */
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+    --dur-short: 150ms;                   /* short3 */
+    --dur-medium: 250ms;                  /* medium1 */
+    --dur-medium2: 300ms;                 /* medium2 */
+
+    /* ===== 尺寸/间距比例令牌（rem 自适应）===== */
+    --tap: 3rem;            /* 触摸目标最小高度 ≈48px @16px 根 */
+    --radius-card: var(--shape-m);        /* 12px：MD3 标准卡片圆角 */
+    --radius-pill: var(--shape-full);     /* 9999px：MD3 按钮为全圆角(pill) */
+  }

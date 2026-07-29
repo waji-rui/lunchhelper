@@ -26,7 +26,7 @@ namespace LunchHelper
 {
     /// <summary>
     /// 配置读写：配置文件位于程序同目录 config.json。
-    /// 应急密码仅以 SHA-256 哈希形式存储，绝不保存明文。
+    /// 应急密码仅以 PBKDF2-HMAC-SHA256 哈希形式存储（每安装随机盐），绝不保存明文。
     /// </summary>
     internal static class ConfigManager
     {
@@ -110,6 +110,12 @@ namespace LunchHelper
         /// <summary>应急密码 PBKDF2 迭代次数（1 万次，解锁瞬时且无感知安全退步）。</summary>
         public const int DefaultIterations = 10000;
 
+        /// <summary>应急密码最小长度下限（公开规则，绝非用户实际密码位数）。锁屏短码彩蛋与配置校验共用此常量。</summary>
+        public const int MinPinLength = 4;
+
+        /// <summary>应急密码最大长度上限（公开规则）。</summary>
+        public const int MaxPinLength = 12;
+
         /// <summary>计算应急密码的 PBKDF2-HMAC-SHA256 哈希并生成每安装唯一的随机盐。</summary>
         public static void ComputePasswordHash(string plain, out string hash, out string salt)
         {
@@ -160,7 +166,7 @@ namespace LunchHelper
         public string PasswordSalt { get; set; } = "";
 
         [DataMember(Name = "passwordIterations")]
-        public int PasswordIterations { get; set; } = 50000;
+        public int PasswordIterations { get; set; } = ConfigManager.DefaultIterations;
 
         [DataMember(Name = "logRetentionDays")]
         public int LogRetentionDays { get; set; } = 14;
@@ -196,7 +202,7 @@ namespace LunchHelper
                 PasswordIterations = 100000;
             }
             if (Slogan == null) Slogan = "";
-            if (PinLength < 4 || PinLength > 12) PinLength = 6;
+            if (PinLength < ConfigManager.MinPinLength || PinLength > ConfigManager.MaxPinLength) PinLength = 6;
         }
     }
 }

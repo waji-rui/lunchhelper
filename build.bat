@@ -65,7 +65,9 @@ if not defined BUILD (
 )
 
 echo Using MSBuild: %BUILD%
-"%BUILD%" LunchHelper.csproj /p:Configuration=Release /p:Platform=AnyCPU %*
+REM -restore 首次会从 nuget.org 下载 Microsoft.Web.WebView2 包（含 WebView2Loader.dll），
+REM 生成 obj\*.nuget.g.targets 并注入程序集引用；之后构建可离线。
+"%BUILD%" LunchHelper.csproj -restore /p:Configuration=Release /p:Platform=AnyCPU %*
 if errorlevel 1 (
   echo.
   echo BUILD FAILED

@@ -14,6 +14,11 @@
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <LangVersion>latest</LangVersion>
+    <!-- 强制 x64：与 WebView2Loader.dll（包内 x64 原生）架构一致，避免 AnyCPU 32-bit-preferred 下加载器不匹配 -->
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- 经典 csproj + PackageReference 还原模式：msbuild -restore 原生支持，
+         自动下载 Microsoft.Web.WebView2 并注入程序集引用与 WebView2Loader.dll 拷贝 -->
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
@@ -41,6 +46,12 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
 
+  <!-- WebView2：配置界面改用内嵌 Chromium 渲染（Evergreen，依赖系统已装的 WebView2 Runtime）。
+       MIT 许可，GPL-3.0 兼容；对外发布前请补 THIRD-PARTY-NOTICES 署名。 -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="src\Program.cs" />
     <Compile Include="src\NativeMethods.cs" />
@@ -51,10 +62,25 @@
     <Compile Include="src\AntiTamper.cs" />
     <Compile Include="src\Guardian.cs" />
     <Compile Include="src\NumericPad.cs" />
-    <Compile Include="src\AboutForm.cs" />
     <Compile Include="src\ConfigForm.cs" />
     <Compile Include="src\LockForm.cs" />
   </ItemGroup>
+
+  <!-- 配置界面的离线 HTML 与拆分的样式（均为内嵌资源，运行时由 ConfigForm.LoadHtml 组合注入，
+       WebView2.NavigateToString 加载，无需联网）：
+       - ConfigPage.html         标记骨架，<head> 内含 /*CSS_TOKENS*/ 与 /*CSS_COMPONENTS*/ 占位符
+       - ConfigPage.tokens.css   设计令牌层（颜色/形状/字体/动效/尺寸令牌）——主题/插件系统的主要覆盖面
+       - ConfigPage.components.css 组件与布局样式，消费上述令牌 -->
+  <ItemGroup>
+    <EmbeddedResource Include="src\ConfigPage.html" />
+    <EmbeddedResource Include="src\ConfigPage.tokens.css" />
+    <EmbeddedResource Include="src\ConfigPage.components.css" />
+  </ItemGroup>
+
+  <!-- NuGet 还原生成的 props（定义 PackageReference 相关属性）；经典工程需手动导入。
+       .targets 由 Microsoft.Common.targets 自动导入（重复导入会触发 MSB4011 警告），故此处不再导入。 -->
+  <Import Project="$(MSBuildProjectExtensionsPath)$(MSBuildProjectFile).nuget.g.props"
+          Condition="Exists('$(MSBuildProjectExtensionsPath)$(MSBuildProjectFile).nuget.g.props')" />
 
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

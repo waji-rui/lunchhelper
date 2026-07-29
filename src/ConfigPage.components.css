@@ -1,0 +1,315 @@
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    /* 1rem = 浏览器/系统默认字号（通常 16px）；用 rem 后所有间距随文本缩放联动，
+       比写死 px 更鲁棒，也契合大厂网页“字号可访问性”做法。 */
+    font-size: 100%;
+    background: var(--surface);
+    color: var(--on-surface);
+    font-family: "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+  }
+  html, body { height: 100%; }
+  body { height: 100dvh; }                 /* dvh 兼容移动端动态视口，避免地址栏遮挡 */
+  .app { display: flex; height: 100vh; height: 100dvh; }
+
+  /* ---- 左侧导航栏：宽度按视口比例，clamp 给上下限，低分屏不挤、高分屏不空 ---- */
+  .sidebar {
+    flex: 0 0 auto;
+    width: 15rem;        /* 固定 15rem（≈240px @16px 根），随系统文本缩放；不随视口乱飘，比例更稳定 */
+    background: var(--surface-container);
+    /* MD3 navigation rail/drawer 靠 tonal elevation 分隔，不用描边 */
+    border-right: none;
+    display: flex; flex-direction: column;
+    user-select: none;
+  }
+  .sidebar .nav-title {
+    padding: 1.25rem 1.25rem 0.75rem;
+    font-size: var(--md-title-large); font-weight: var(--md-title-large-weight);
+    color: var(--on-surface);
+  }
+  .sidebar nav { padding: 0.5rem 0.75rem; }
+  .nav-item {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.625rem;
+    color: var(--on-surface-variant);
+    text-decoration: none;
+    font-size: var(--md-body-large);
+    transition: background var(--dur-short) var(--ease-standard),
+                color var(--dur-short) var(--ease-standard);
+    cursor: pointer;
+  }
+  .nav-item:hover { background: var(--surface-container-high); color: var(--on-surface); }
+  /* MD3 导航栏/抽屉选中项：用 accent-container（中强调）而非整块 primary，层级更准 */
+  .nav-item.active { background: var(--accent-container); color: var(--on-accent-container); }
+  .nav-item .icon { width: 1.25rem; text-align: center; }
+  .nav-item .icon svg { width: 1.375rem; height: 1.375rem; display: block; fill: currentColor; }
+
+  /* ---- 主内容区 ---- */
+  .main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex; flex-direction: column;
+    background: var(--surface);
+  }
+
+  /* 顶部栏：仅在窄屏显示，用于呼出侧边栏 */
+  .topbar {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    height: 3.5rem;
+    padding: 0 0.5rem 0 0.75rem;
+    background: var(--surface-container);
+    border-bottom: none;
+  }
+  .menu-btn {
+    width: 2.5rem; height: 2.5rem;
+    border: none; background: transparent;
+    color: var(--on-surface);
+    font-size: 1.25rem;
+    border-radius: var(--shape-full); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .menu-btn:hover { background: var(--surface-container-high); }
+  .menu-btn svg { width: 1.375rem; height: 1.375rem; display: block; fill: currentColor; }
+  .topbar-title {
+    margin-left: 0.5rem;
+    font-size: var(--md-title-medium); font-weight: var(--md-title-medium-weight);
+    color: var(--on-surface);
+  }
+
+  /* ---- 滚动内容区 ---- */
+  .content {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: clamp(0.75rem, 3vw, 1.5rem);
+    -webkit-overflow-scrolling: touch;
+  }
+  /* 自定义滚动条（深色主题，与 MD3 风格一致），宽度用 rem 跟随文本缩放 */
+  .content::-webkit-scrollbar { width: 0.5rem; }
+  .content::-webkit-scrollbar-track { background: transparent; }
+  .content::-webkit-scrollbar-thumb {
+    background: var(--outline);
+    border-radius: 0.25rem;
+    border: 0.125rem solid transparent;
+    background-clip: padding-box;
+  }
+  .content::-webkit-scrollbar-thumb:hover { background: var(--on-surface-variant); background-clip: padding-box; }
+  .content::-webkit-scrollbar-button { display: none; }
+  .content::-webkit-scrollbar-corner { background: transparent; }
+
+  /* ---- 多页框架：导航项即页面，仅 active 页可见 ---- */
+  .page { display: none; }
+  .page.active {
+    display: block;
+    /* 页面切换：淡入 + 轻微上移；Windows 关闭动画时由 .no-anim 全局禁用 */
+    animation: page-in var(--dur-medium) var(--ease-standard);
+  }
+  @keyframes page-in {
+    from { opacity: 0; transform: translateY(0.5rem); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* 侧边栏分组分割线（MD3 divider，用 outline-variant） */
+  .nav-divider {
+    height: 1px;
+    margin: 0.5rem 0.75rem;
+    background: var(--outline-variant);
+  }
+
+  /* 关于页（内联全部关于内容，替代原独立关于窗口） */
+  .about-block { max-width: 42rem; padding: 0.5rem 0.25rem; }
+  .about-name {
+    font-size: var(--md-title-large); font-weight: var(--md-title-large-weight);
+    color: var(--on-surface);
+  }
+  .about-version {
+    margin-top: 0.25rem;
+    font-size: var(--md-body-large); color: var(--on-surface-variant);
+  }
+  .about-desc, .about-meta {
+    margin: 1.25rem 0 0;
+    font-size: var(--md-body-medium); line-height: var(--md-body-medium-line);
+    color: var(--on-surface-variant);
+  }
+  .about-meta { margin-top: 0.5rem; }
+
+  /* ---- 设置卡片（MD3 双行列表项：图标 + 标题/副标题 + 右侧控件） ---- */
+  .card {
+    display: flex; align-items: center; gap: 1rem;
+    /* MD3 filled card：用 surface-container-high 营造 tonal elevation，无描边 */
+    background: var(--surface-container-high);
+    border: none;
+    border-radius: var(--radius-card);
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+    min-height: var(--tap);
+  }
+  .card .icon {
+    flex: 0 0 auto;
+    width: 2.5rem; height: 2.5rem;
+    border-radius: 50%;
+    /* MD3 图标容器比 filled card 再高一层 tonal elevation */
+    background: var(--surface-container-highest);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.25rem;
+  }
+  .card .icon svg { width: 1.375rem; height: 1.375rem; display: block; fill: var(--on-surface-variant); }
+  .card .text { flex: 1 1 auto; min-width: 0; }
+  .card .t {
+    font-size: var(--md-body-large); color: var(--on-surface);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .card .s {
+    font-size: var(--md-body-medium); color: var(--on-surface-variant);
+    line-height: var(--md-body-medium-line);
+    margin-top: 0.125rem;
+    white-space: normal; overflow-wrap: anywhere;
+  }
+  .card .ctl { flex: 0 0 auto; display: flex; align-items: center; }
+
+  /* ---- 输入框（触摸目标 ≥48px） ---- */
+  input.field {
+    height: var(--tap);
+    min-width: 4rem;
+    width: clamp(7rem, 15vw, 10.5rem);   /* 宽屏下随卡片区域缩放，窄屏媒体查询会覆盖为 100% */
+    /* MD3 filled text field：无可见边框，靠 surface-container-highest 背景自解释；
+       仅在 focus 时显示 accent 底部 indicator */
+    border: none;
+    border-bottom: 1px solid transparent;
+    border-radius: 0.25rem 0.25rem 0 0;
+    background: var(--surface-container-highest);
+    color: var(--on-surface);
+    font-size: 1rem; font-family: inherit;
+    padding: 0 1rem;
+    text-align: left;
+    outline: none;
+  }
+  input.field:focus { border-bottom-color: var(--accent); }
+  input.field::placeholder { color: var(--on-surface-variant); opacity: .8; }
+  /* 隐藏 number 输入框的上下加减箭头 */
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  input[type=number] { -moz-appearance: textfield; }
+
+  /* ---- MD3 开关 ---- */
+  .switch { position: relative; display: inline-block; width: 3.25rem; height: 2rem; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .track {
+    position: absolute; inset: 0;
+    /* MD3 未选中：浅色容器轨道（不是灰填充）+ 灰色滑块 */
+    background: var(--surface-container-highest); border-radius: var(--shape-full);
+    transition: background var(--dur-medium) var(--ease-standard);
+  }
+  .switch .thumb {
+    position: absolute; top: 0.25rem; left: 0.25rem;
+    width: 1.5rem; height: 1.5rem; border-radius: 50%;
+    background: var(--outline);
+    transition: transform var(--dur-medium2) var(--ease-emphasized),
+                background var(--dur-short) var(--ease-standard);
+  }
+  .switch input:checked + .track { background: var(--accent); }
+  .switch input:checked + .track .thumb { transform: translateX(1.25rem); background: var(--on-accent); }
+
+  .btn {
+    height: var(--tap); min-width: 5.5rem;
+    padding: 0 1.25rem;
+    border-radius: var(--radius-pill);
+    font-size: var(--md-label-large); font-weight: var(--md-label-large-weight); font-family: inherit;
+    cursor: pointer; border: 1px solid transparent;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background var(--dur-short) var(--ease-standard),
+                border-color var(--dur-short) var(--ease-standard);
+  }
+  /* 次级按钮：MD3 outlined button。1px outline 明确标识可点击，
+     比主按钮（filled）弱一档；文字用 primary，hover 时 outline 与 state layer 转强调色。 */
+  .btn.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--outline);
+  }
+  .btn.secondary:hover {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: var(--accent);
+  }
+  .btn.secondary:active {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent);
+  }
+  /* ---- 轻提示 ---- */
+  .toast {
+    position: fixed; left: 50%; bottom: 1.5rem;
+    transform: translateX(-50%) translateY(1.25rem);
+    /* MD3 snackbar：靠更高一层 tonal elevation + 阴影浮起，不用描边；
+       圆角用 extra-small(4dp)，与官方 snackbar 一致 */
+    background: var(--surface-container-highest);
+    color: var(--on-surface);
+    box-shadow: 0 0.5rem 1.25rem rgba(0,0,0,.45);
+    padding: 0.625rem 1.125rem; border-radius: var(--shape-xs);
+    font-size: var(--md-body-medium); line-height: var(--md-body-medium-line);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--dur-medium) var(--ease-standard),
+                transform var(--dur-medium) var(--ease-standard);
+    max-width: 86vw; text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  /* 错误态：不用描边，改用 MD3 错误色（--error，即暗色面上的 error 文字色）表达 */
+  .toast.err { color: var(--error); }
+
+  /* ---- 窄屏自适应：侧边栏隐藏为抽屉，顶部出现汉堡菜单 ---- */
+  .overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 90;
+  }
+  .overlay.show { display: block; }
+
+  /* 断点用 rem（= CSS px / 根字号），随系统文本缩放联动，本质上仍是 DPI 自适应的；
+     侧边栏固定 15rem + 内容区最少需要约 28–30rem，低于 45rem 时并排会挤，改抽屉。 */
+  @media (max-width: 45rem) {
+    .sidebar {
+      position: fixed; left: 0; top: 0; bottom: 0;
+      width: min(80vw, 18rem);
+      transform: translateX(-100%);
+      transition: transform var(--dur-medium2) var(--ease-emphasized);
+      z-index: 100;
+      border-right: none;
+    }
+    .sidebar.open { transform: translateX(0); }
+    .topbar { display: flex; }
+    .content { padding: 1rem; }
+    .card {
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 0.625rem;
+      padding: 0.875rem;
+    }
+    .card .icon { width: 2.25rem; height: 2.25rem; font-size: 1.125rem; }
+    .card .text { flex: 1 1 0; min-width: 0; }
+    .card .ctl {
+      flex: 1 1 100%;
+      justify-content: stretch;
+    }
+    input.field {
+      width: 100%;
+      max-width: none;
+    }
+  }
+
+  /* ---- 跟随 Windows“显示动画”系统设置 ----
+     当 Windows 关闭动画（设置→辅助功能→视觉效果→动画效果）时，
+     C# 经 applyConfig 给 <html> 加 .no-anim，全局禁用过渡/动画，
+     使应用内所有动效（页面切换、导航 hover、开关、抽屉、toast）与系统保持一致。 */
+  html.no-anim *,
+  html.no-anim *::before,
+  html.no-anim *::after {
+    animation: none !important;
+    transition: none !important;
+  }
