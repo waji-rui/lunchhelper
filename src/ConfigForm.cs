@@ -117,7 +117,17 @@ namespace LunchHelper
             {
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
-                BackColor = _scheme.Surface
+                BackColor = _scheme.Surface,
+                // WebView2 默认把用户数据文件夹放在 exe 同级目录；若 exe 位于
+                // C:\Program Files\ 等受保护目录，普通用户没有写入权限会导致初始化失败。
+                // 显式指定到 %LOCALAPPDATA% 下，保证任何位置都能正常启动。
+                CreationProperties = new CoreWebView2CreationProperties
+                {
+                    UserDataFolder = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        ConfigManager.AppName,
+                        "WebView2Data")
+                }
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
             Controls.Add(_web);
@@ -132,8 +142,8 @@ namespace LunchHelper
             }
             catch (Exception ex)
             {
-                Logger.Error("WebView2 初始化失败（可能未安装运行时）: " + ex.Message);
-                ShowRuntimeMissing();
+                Logger.Error("WebView2 初始化失败: " + ex);
+                ShowWebView2Error(ex.Message, IsLikelyRuntimeMissing(ex));
             }
         }
 
@@ -141,7 +151,9 @@ namespace LunchHelper
         {
             if (!e.IsSuccess)
             {
-                ShowRuntimeMissing();
+                string detail = e.InitializationException?.Message ?? "未知错误";
+                Logger.Error("WebView2 初始化失败: " + e.InitializationException);
+                ShowWebView2Error(detail, IsLikelyRuntimeMissing(e.InitializationException));
                 return;
             }
             try
@@ -416,50 +428,84 @@ namespace LunchHelper
 
         // ---- 运行时缺失兜底（不白屏） ----
 
-        private void ShowRuntimeMissing()
+        private static bool IsLikelyRuntimeMissing(Exception ex)
+        {
+            if (ex == null) return false;
+            string msg = (ex.Message ?? "").ToLowerInvariant();
+            return msg.Contains("runtime") || msg.Contains("not installed") || msg.Contains("no available")
+                || msg.Contains("找不到") || msg.Contains("无法找到") || msg.Contains("未能加载");
+        }
+
+        private void ShowWebView2Error(string detail, bool likelyMissingRuntime)
         {
             if (IsDisposed) return;
             BeginInvoke((Action)(() =>
             {
                 Controls.Clear();
                 var p = new Panel { Dock = DockStyle.Fill, BackColor = _scheme.Surface, Padding = new Padding(24) };
+
+                string hint = likelyMissingRuntime
+                    ? "本机可能未安装 Microsoft Edge WebView2 运行时。Windows 11 通常已自带；少数 Windows 10 机器需手动安装。"
+                    : "常见原因：程序所在目录没有写入权限（例如 C:\\Program Files）。请尝试以管理员身份运行，或将程序移到其他目录。";
+
                 var lbl = new Label
                 {
-                    Text = "无法加载配置界面：本机缺少 Microsoft Edge WebView2 运行时。\n\n" +
-                           "Windows 11 通常已自带；少数 Windows 10 机器需手动安装。请安装后重新打开本程序。",
+                    Text = "无法加载配置界面：WebView2 初始化失败。\n\n" +
+                           "错误详情：" + detail + "\n\n" + hint +
+                           "\n请修复后重新打开本程序，或查看 logs 目录了解详情。",
                     ForeColor = _scheme.OnSurface,
-                    Font = new Font("Segoe UI", 13F),
+                    Font = new Font("Segoe UI", 12F),
                     Dock = DockStyle.Top,
-                    Height = 160,
+                    Height = 220,
                     TextAlign = ContentAlignment.TopLeft
                 };
-                var btn = new Button
+
+                var bottom = new Panel { Dock = DockStyle.Bottom, Height = 44 };
+                var btnDownload = new Button
                 {
                     Text = "打开 WebView2 下载页",
-                    Dock = DockStyle.Bottom,
+                    Width = 200,
                     Height = 44,
+                    Left = 0,
+                    Top = 0,
                     BackColor = _accent,
                     ForeColor = _onAccent,
                     FlatStyle = FlatStyle.Flat,
                     Cursor = Cursors.Hand
                 };
-                btn.FlatAppearance.BorderSize = 0;
-                btn.Click += (s, ev) =>
+                btnDownload.FlatAppearance.BorderSize = 0;
+                btnDownload.Click += (s, ev) => SafeOpenUrl("https://go.microsoft.com/fwlink/p/?LinkId=2124703");
+
+                var btnLogs = new Button
                 {
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
-                            UseShellExecute = true
-                        });
-                    }
-                    catch { }
+                    Text = "打开日志目录",
+                    Width = 140,
+                    Height = 44,
+                    Left = 216,
+                    Top = 0,
+                    BackColor = _scheme.SurfaceContainerHighest,
+                    ForeColor = _scheme.OnSurface,
+                    FlatStyle = FlatStyle.Flat,
+                    Cursor = Cursors.Hand
                 };
-                p.Controls.Add(btn);
+                btnLogs.FlatAppearance.BorderSize = 0;
+                btnLogs.Click += (s, ev) => SafeOpenUrl(Logger.LogDirectory);
+
+                bottom.Controls.Add(btnDownload);
+                bottom.Controls.Add(btnLogs);
                 p.Controls.Add(lbl);
+                p.Controls.Add(bottom);
                 Controls.Add(p);
             }));
+        }
+
+        private static void SafeOpenUrl(string path)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+            }
+            catch { }
         }
 
         // ---- 工具 ----

@@ -35,6 +35,16 @@ namespace LunchHelper
         private static bool _debug;
         private static int _retentionDays;
 
+        public static string LogDirectory
+        {
+            get
+            {
+                if (_logDir != null) return _logDir;
+                var baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                return Path.Combine(baseDir, "logs");
+            }
+        }
+
         public static void Init(int retentionDays, bool debug)
         {
             _debug = debug;
