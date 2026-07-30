@@ -165,9 +165,10 @@ namespace LunchHelper
         /// HTML 头部保留 <c>&lt;style id="md3-tokens"&gt;/*CSS_TOKENS*/&lt;/style&gt;</c>、
         /// <c>&lt;style id="md3-components"&gt;/*CSS_COMPONENTS*/&lt;/style&gt;</c>、
         /// <c>&lt;style id="md3-dialog"&gt;/*CSS_DIALOG*/&lt;/style&gt;</c> 三个样式占位符，
-        /// 以及 <c>&lt;script&gt;/*JS_DIALOG*/&lt;/script&gt;</c> 弹窗脚本占位符；
-        /// 样式已拆到 ui/tokens.css / ui/components.css / ui/dialog.css（内嵌资源），
-        /// 便于锁屏复用与未来主题/插件系统覆盖（换肤只需替换令牌层，组件样式无需改动）。
+        /// 以及 <c>&lt;script&gt;/*JS_DIALOG*/&lt;/script&gt;</c>（弹窗组件）与
+        /// <c>&lt;script&gt;/*JS_HOST*/&lt;/script&gt;</c>（宿主桥接 API）两个脚本占位符；
+        /// 样式与脚本已拆到 ui/（内嵌资源），便于锁屏复用与未来主题/插件系统覆盖
+        /// （换肤只需替换令牌层，组件样式无需改动；插件仅需调用 window.LunchHelper.host.*）。
         /// </summary>
         private string LoadHtml()
         {
@@ -178,10 +179,12 @@ namespace LunchHelper
             string css = ReadEmbedded(asm, "ui.components.css") ?? "";
             string dlgCss = ReadEmbedded(asm, "ui.dialog.css") ?? "";
             string dlgJs = ReadEmbedded(asm, "ui.dialog.js") ?? "";
+            string hostJs = ReadEmbedded(asm, "ui.host-bridge.js") ?? "";
             html = html.Replace("/*CSS_TOKENS*/", tokens)
                        .Replace("/*CSS_COMPONENTS*/", css)
                        .Replace("/*CSS_DIALOG*/", dlgCss)
-                       .Replace("/*JS_DIALOG*/", dlgJs);
+                       .Replace("/*JS_DIALOG*/", dlgJs)
+                       .Replace("/*JS_HOST*/", hostJs);
             return html;
         }
 
@@ -223,6 +226,20 @@ namespace LunchHelper
                 case "save":
                     HandleSave(msg.Data, msg.Silent);
                     break;
+                case "host":
+                    // 宿主桥接请求：由 op 决定操作，结果经 SendHostResult 回传（消息 id 配对）
+                    HandleHost(msg);
+                    break;
+                case "dialogResult":
+                    // C# 主动弹窗（ShowHostDialog）的用户操作结果，由前端 __showHostDialog 回调触发。
+                    // 目前仅记录，后续可在此接入具体业务（如确认后执行某动作）。
+                    try
+                    {
+                        string btn = msg.Data != null ? (msg.Data.ButtonId ?? "") : "";
+                        Logger.Info("宿主弹窗结果: " + (btn == null ? "null(取消)" : btn));
+                    }
+                    catch { }
+                    break;
                 case "reset":
                     try
                     {
@@ -240,9 +257,33 @@ namespace LunchHelper
             }
         }
 
-        private void HandleSave(SaveData d, bool silent)
+        /// <summary>处理宿主桥接请求（cmd=="host"）。op 决定操作，结果经 SendHostResult 回传前端。</summary>
+        private void HandleHost(WebMsg msg)
         {
-            if (d == null) { SendSaved(false, "收到空数据。"); return; }
+            if (msg == null) return;
+            switch (msg.Op)
+            {
+                case "getConfig":
+                    // payload 直接内联 BuildConfigJson() 产出的对象字面量
+                    SendHostResult(msg.Id, true, BuildConfigJson());
+                    break;
+                case "setConfig":
+                    // 经桥接写入：静默成功（避免与实时保存重复的 toast）；失败也要如实回传
+                    bool ok = HandleSave(msg.Data, true);
+                    SendHostResult(msg.Id, ok, ok ? "{\"ok\":true}" : "null");
+                    break;
+                case "areAnimationsEnabled":
+                    SendHostResult(msg.Id, true, NativeMethods.AreAnimationsEnabled() ? "true" : "false");
+                    break;
+                default:
+                    SendHostResult(msg.Id, false, null, "未知宿主操作: " + (msg.Op ?? ""));
+                    break;
+            }
+        }
+
+        private bool HandleSave(SaveData d, bool silent)
+        {
+            if (d == null) { SendSaved(false, "收到空数据。"); return false; }
             try
             {
                 var cfg = ConfigManager.Load();
@@ -265,7 +306,7 @@ namespace LunchHelper
                     if (!Regex.IsMatch(pwd, pattern))
                     {
                         SendSaved(false, $"应急解锁密码必须为 {ConfigManager.MinPinLength}–{ConfigManager.MaxPinLength} 位纯数字。");
-                        return;
+                        return false;
                     }
                     ConfigManager.ComputePasswordHash(pwd, out var hash, out var salt);
                     cfg.PasswordHash = hash;
@@ -277,11 +318,13 @@ namespace LunchHelper
                 ConfigManager.Save(cfg);
                 Logger.Info("配置已保存");
                 SendSaved(true, "配置已保存。", silent);
+                return true;
             }
             catch (Exception ex)
             {
                 Logger.Error("保存配置异常: " + ex.Message);
                 SendSaved(false, "保存失败：" + ex.Message);
+                return false;
             }
         }
 
@@ -292,6 +335,35 @@ namespace LunchHelper
             string j = "{\"ok\":" + (ok ? "true" : "false") + ",\"msg\":" + JsonString(msg)
                 + ",\"silent\":" + (silent ? "true" : "false") + "}";
             _web.ExecuteScriptAsync("window.onSaved(" + j + ")");
+        }
+
+        /// <summary>
+        /// 把宿主桥接请求的结果回传前端 <c>window.__hostResult({id,ok,payload})</c>。
+        /// payloadJson 为「已序列化」的 JSON 值（对象/数组/字符串/数字/布尔），直接内联，
+        /// 不再经 JsonString 二次转义——调用方须自行保证其为合法 JSON 片段（如 BuildConfigJson()）。
+        /// </summary>
+        private void SendHostResult(int id, bool ok, string payloadJson, string error = null)
+        {
+            if (IsDisposed || _web?.CoreWebView2 == null) return;
+            string payload = ok ? (payloadJson ?? "null") : "null";
+            string j = "{\"id\":" + id + ",\"ok\":" + (ok ? "true" : "false")
+                + ",\"payload\":" + payload;
+            if (!ok) j += ",\"error\":" + JsonString(error ?? "unknown error");
+            j += "}";
+            _web.ExecuteScriptAsync("window.__hostResult(" + j + ")");
+        }
+
+        /// <summary>
+        /// C# 主动弹 MD3 弹窗（经前端 MD3Dialog 渲染）。optsJson 为合法 JSON 对象字符串，
+        /// 形如 {"title":"提示","content":"...","buttons":[{"id":"ok","text":"确定","style":"primary"}]}。
+        /// 用户操作结果由前端以 cmd:"dialogResult" 回传，在 OnWebMessage 中处理。
+        /// 用途：让 C# 业务侧（如运行期错误、插件触发的确认）也能驱动 Modal 流程。
+        /// </summary>
+        public void ShowHostDialog(string optsJson)
+        {
+            if (IsDisposed || _web?.CoreWebView2 == null) return;
+            if (string.IsNullOrWhiteSpace(optsJson)) optsJson = "{}";
+            _web.ExecuteScriptAsync("window.__showHostDialog(" + optsJson + ")");
         }
 
         /// <summary>把当前 Config 序列化为 applyConfig 所需的 JSON（手工构造，避免额外依赖）。</summary>
@@ -525,6 +597,10 @@ namespace LunchHelper
             // 实时保存（字段 change 触发）为 true：成功回执不弹 toast，避免每次改动都闪提示；
             // 显式动作（如恢复默认）为 false，保留成功提示。
             [DataMember(Name = "silent")] public bool Silent { get; set; }
+            // 宿主桥接请求的操作名（cmd=="host" 时有效），如 getConfig/setConfig/areAnimationsEnabled
+            [DataMember(Name = "op")] public string Op { get; set; }
+            // 宿主桥接请求的唯一 id，C# 回执时原样带回，前端据此配对 Promise
+            [DataMember(Name = "id")] public int Id { get; set; }
         }
 
         [DataContract]
@@ -535,6 +611,8 @@ namespace LunchHelper
             [DataMember(Name = "slogan")] public string Slogan { get; set; }
             [DataMember(Name = "enableUiAccess")] public bool EnableUiAccess { get; set; }
             [DataMember(Name = "password")] public string Password { get; set; }
+            // 宿主弹窗（C# 主动触发）的用户操作结果，由前端 cmd:"dialogResult" 回传
+            [DataMember(Name = "buttonId")] public string ButtonId { get; set; }
         }
     }
 }

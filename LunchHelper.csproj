@@ -73,13 +73,16 @@
        - ui/tokens.css             设计令牌层（颜色/形状/字体/动效/尺寸令牌）——主题/插件系统的主要覆盖面
        - ui/components.css         通用组件与布局样式（按钮/卡片/输入/开关/导航/页），消费上述令牌
        - ui/dialog.css             MD3 对话框专属样式（弹窗可复用，插件/配置页共用）
-       - ui/dialog.js              MD3Dialog.show(opts) 弹窗组件（返回 Promise<buttonId>，跟随 no-anim 动画） -->
+       - ui/dialog.js              MD3Dialog.show(opts) 弹窗组件（返回 Promise<buttonId>，跟随 no-anim 动画）
+       - ui/host-bridge.js         宿主桥接层：window.LunchHelper.host.*（getConfig/setConfig/showDialog 等），
+                                    前端↔C# 经消息 id 配对回执；插件只用此 API，不碰 postMessage -->
   <ItemGroup>
     <EmbeddedResource Include="src\ConfigPage.html" />
     <EmbeddedResource Include="src\ui\tokens.css" />
     <EmbeddedResource Include="src\ui\components.css" />
     <EmbeddedResource Include="src\ui\dialog.css" />
     <EmbeddedResource Include="src\ui\dialog.js" />
+    <EmbeddedResource Include="src\ui\host-bridge.js" />
   </ItemGroup>
 
   <!-- NuGet 还原生成的 props（定义 PackageReference 相关属性）；经典工程需手动导入。
