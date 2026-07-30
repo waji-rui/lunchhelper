@@ -118,15 +118,12 @@ namespace LunchHelper
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
                 BackColor = _scheme.Surface,
-                // WebView2 默认把用户数据文件夹放在 exe 同级目录；若 exe 位于
-                // C:\Program Files\ 等受保护目录，普通用户没有写入权限会导致初始化失败。
-                // 显式指定到 %LOCALAPPDATA% 下，保证任何位置都能正常启动。
+                // 方案1：用户数据默认写在 exe 同目录（绿色便携，删目录即卸载）。
+                // 若 exe 位于 C:\Program Files\ 等受保护目录且无写入权限，会在 InitializeWebView
+                // 里提前检测并引导用户「以管理员运行」或「移到其他目录」，绝不静默回退到 AppData。
                 CreationProperties = new CoreWebView2CreationProperties
                 {
-                    UserDataFolder = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        ConfigManager.AppName,
-                        "WebView2Data")
+                    UserDataFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
                 }
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
@@ -135,6 +132,15 @@ namespace LunchHelper
 
         private async Task InitializeWebView()
         {
+            // 提前检测 exe 所在目录是否可写（绿色便携：用户数据与程序同目录）。
+            // 受保护目录（如 C:\Program Files）普通用户无写权限时，直接给出明确引导，
+            // 避免 WebView2 抛出模糊技术错误，也不回退到 AppData 留下残留。
+            if (!IsExeDirWritable())
+            {
+                string dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                ShowWebView2Error("程序所在目录没有写入权限：" + dir, false);
+                return;
+            }
             try
             {
                 // null = 使用默认 Evergreen WebView2 Runtime（不打包引擎）
@@ -436,6 +442,31 @@ namespace LunchHelper
                 || msg.Contains("找不到") || msg.Contains("无法找到") || msg.Contains("未能加载");
         }
 
+        /// <summary>
+        /// 探测 exe 所在目录是否可写。绿色便携模式下用户数据写在程序同目录，
+        /// 受保护目录（Program Files 等）普通用户无写权限时会返回 false，
+        /// 由调用方引导用户以管理员运行或移到其他目录。
+        /// </summary>
+        private static bool IsExeDirWritable()
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+                string probe = Path.Combine(dir, ".lh_writetest_" + Guid.NewGuid().ToString("N") + ".tmp");
+                using (var fs = File.Create(probe))
+                {
+                    fs.WriteByte(0);
+                }
+                File.Delete(probe);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void ShowWebView2Error(string detail, bool likelyMissingRuntime)
         {
             if (IsDisposed) return;
@@ -446,7 +477,7 @@ namespace LunchHelper
 
                 string hint = likelyMissingRuntime
                     ? "本机可能未安装 Microsoft Edge WebView2 运行时。Windows 11 通常已自带；少数 Windows 10 机器需手动安装。"
-                    : "常见原因：程序所在目录没有写入权限（例如 C:\\Program Files）。请尝试以管理员身份运行，或将程序移到其他目录。";
+                    : "程序所在目录没有写入权限（例如 C:\\Program Files）。为保证「删目录即卸载」的绿色体验，用户数据与程序同目录存放。请：① 以管理员身份运行本程序；或 ② 将整个程序目录移到其他位置（如 D:\\LunchHelper）。";
 
                 var lbl = new Label
                 {
