@@ -1,6 +1,10 @@
 @echo off
 setlocal
 
+REM 脚本所在目录（去掉尾部反斜杠，避免 "%~dp0" 末尾 \ 转义闭合引号导致传给 PowerShell 的参数含非法字符）
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+
 REM ============================================================
 REM  LunchHelper build script (Windows plus .NET Framework 4.8)
 REM  Requires Visual Studio with the .NET desktop development
@@ -79,7 +83,7 @@ echo BUILD OK -^> bin\Release\LunchHelper.exe
 
 REM 构建后打包便携 zip（exe + WebView2 DLL + plugins + 文档），供本地直接生成发布包
 echo Packing portable ZIP...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0pack.ps1" -ReleaseDir "%~dp0bin\Release" -Version dev -OutDir "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\pack.ps1" -ReleaseDir "%SCRIPT_DIR%\bin\Release" -Version dev -OutDir "%SCRIPT_DIR%"
 if errorlevel 1 (
   echo.
   echo PACK FAILED

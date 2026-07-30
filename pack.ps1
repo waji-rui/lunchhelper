@@ -15,6 +15,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 防御：去掉尾部反斜杠，避免 batch/CI 传入 "...\" 导致 Join-Path 拼出非法路径
+$OutDir = $OutDir.TrimEnd('\')
+
 $stage = Join-Path $env:TEMP ("lh_pack_" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
