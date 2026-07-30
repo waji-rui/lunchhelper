@@ -1,0 +1,7 @@
+{
+  "id": "com.example.demo",
+  "name": "示例插件",
+  "pages": [
+    { "id": "hello", "title": "示例页", "src": "pages/demo.html" }
+  ]
+}

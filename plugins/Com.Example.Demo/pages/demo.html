@@ -1,0 +1,9 @@
+<div class="card">
+  <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg></div>
+  <div class="text">
+    <div class="t">示例插件页面</div>
+    <div class="s">本页由 plugins/Com.Example.Demo 注册，未修改主程序一行代码。</div>
+  </div>
+</div>
+<p class="about-desc">第三方插件只需提供一个 <code>plugin.json</code>（id / name / pages）与页面片段 HTML，放到 exe 同目录的 <code>plugins/&lt;你的id&gt;/</code> 下即可被自动加载。页面复用宿主的 MD3 设计令牌与组件样式（.card / .text / .t / .s 等），不依赖任何额外 CSS。</p>
+<p class="about-meta">需要交互逻辑时，在片段里放 <code>data-plugin-init="globalFnName"</code>，宿主会在注入后调用 <code>window.globalFnName(sectionEl, pageObj)</code>。</p>

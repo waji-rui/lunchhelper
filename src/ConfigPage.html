@@ -200,15 +200,64 @@
     });
   }
 
-  // 切换页面：仅 active 页可见，并同步顶部标题；每页从顶部开始
+  // 切换页面：仅 active 页可见，同步侧边栏高亮与顶部标题；每页从顶部开始
   function showPage(targetId) {
     document.querySelectorAll(".page").forEach(function (p) {
       p.classList.toggle("active", p.id === targetId);
     });
     var item = document.querySelector('.nav-item[data-target="' + targetId + '"]');
-    if (item) $("topbarTitle").textContent = item.getAttribute("data-label") || item.textContent.trim();
+    if (item) {
+      $("topbarTitle").textContent = item.getAttribute("data-label") || item.textContent.trim();
+      setActiveNav(targetId);
+    }
     $("content").scrollTop = 0;
   }
+
+  // 插件注册：C# 扫描 plugins/ 后调用，把第三方页面挂到侧边栏（「关于」之前）与内容区。
+  // 重复注册（pageId 已存在）自动跳过；插件页 HTML 经 innerHTML 注入（信任本地插件）。
+  window.__registerPlugins = function (plugins) {
+    if (!plugins || !plugins.length) return;
+    var nav = document.querySelector("#sidebar nav");
+    var content = $("content");
+    var aboutNav = document.querySelector('.nav-item[data-target="about"]');
+    var aboutSection = $("about");
+    var insertedAny = false;
+    plugins.forEach(function (p) {
+      (p.pages || []).forEach(function (pg) {
+        var pageId = "plugin:" + (p.id || "") + ":" + (pg.id || "");
+        if (document.getElementById(pageId)) return; // 跳过重复
+        var a = document.createElement("a");
+        a.className = "nav-item";
+        a.setAttribute("data-target", pageId);
+        a.setAttribute("data-label", pg.title || pg.id);
+        a.textContent = pg.title || pg.id;
+        if (aboutNav) nav.insertBefore(a, aboutNav); else nav.appendChild(a);
+        var sec = document.createElement("section");
+        sec.className = "page";
+        sec.id = pageId;
+        sec.innerHTML = pg.html || "";
+        if (aboutSection) content.insertBefore(sec, aboutSection); else content.appendChild(sec);
+        a.addEventListener("click", function (e) {
+          e.preventDefault();
+          showPage(pageId); closeSidebar();
+        });
+        insertedAny = true;
+        // 可选初始化钩子：插件片段内含 data-plugin-init="globalFnName" 时调用
+        var initEl = sec.querySelector("[data-plugin-init]");
+        if (initEl) {
+          var fn = window[initEl.getAttribute("data-plugin-init")];
+          if (typeof fn === "function") fn(sec, pg);
+        }
+      });
+    });
+    // 若插入了新插件页，在「关于」前补一条 divider（与内置基本/备份的分组一致）
+    if (insertedAny && aboutNav && !document.getElementById("plugin-divider")) {
+      var div = document.createElement("div");
+      div.className = "nav-divider";
+      div.id = "plugin-divider";
+      nav.insertBefore(div, aboutNav);
+    }
+  };
 
   function openSidebar() {
     $("sidebar").classList.add("open");
@@ -243,9 +292,7 @@
   document.querySelectorAll(".nav-item").forEach(function (item) {
     item.addEventListener("click", function (e) {
       e.preventDefault();
-      var target = item.getAttribute("data-target");
-      setActiveNav(target);
-      showPage(target);
+      showPage(item.getAttribute("data-target"));
       closeSidebar();
     });
   });

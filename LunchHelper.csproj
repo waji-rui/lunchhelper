@@ -64,6 +64,7 @@
     <Compile Include="src\NumericPad.cs" />
     <Compile Include="src\ConfigForm.cs" />
     <Compile Include="src\LockForm.cs" />
+    <Compile Include="src\PluginHost.cs" />
   </ItemGroup>
 
   <!-- 配置界面与可复用 UI 的离线资源（均为内嵌资源，运行时由 ConfigForm.LoadHtml 组合注入，
@@ -83,6 +84,14 @@
     <EmbeddedResource Include="src\ui\dialog.css" />
     <EmbeddedResource Include="src\ui\dialog.js" />
     <EmbeddedResource Include="src\ui\host-bridge.js" />
+  </ItemGroup>
+
+  <!-- 示例插件（plugins/）：拷贝到输出目录，便于本地验证插件加载机制。
+       第三方真插件运行时同样放在 exe 同目录的 plugins/ 下，由 PluginHost 扫描加载。 -->
+  <ItemGroup>
+    <Content Include="plugins\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <!-- NuGet 还原生成的 props（定义 PackageReference 相关属性）；经典工程需手动导入。

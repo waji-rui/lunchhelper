@@ -222,6 +222,7 @@ namespace LunchHelper
             {
                 case "ready":
                     _web.ExecuteScriptAsync("window.applyConfig(" + BuildConfigJson() + ")");
+                    RegisterPlugins();
                     break;
                 case "save":
                     HandleSave(msg.Data, msg.Silent);
@@ -255,6 +256,18 @@ namespace LunchHelper
                     }
                     break;
             }
+        }
+
+        /// <summary>加载并注册本地插件页（plugins/ 目录），注入前端 __registerPlugins。</summary>
+        private void RegisterPlugins()
+        {
+            if (IsDisposed || _web?.CoreWebView2 == null) return;
+            try
+            {
+                var pluginsJson = PluginHost.ToJson(PluginHost.LoadAll());
+                _web.ExecuteScriptAsync("window.__registerPlugins(" + pluginsJson + ")");
+            }
+            catch (Exception ex) { Logger.Error("插件加载失败: " + ex.Message); }
         }
 
         /// <summary>处理宿主桥接请求（cmd=="host"）。op 决定操作，结果经 SendHostResult 回传前端。</summary>
