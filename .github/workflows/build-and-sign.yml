@@ -1,27 +1,19 @@
-name: Build and Sign
+name: Build and Release (portable zip)
 
-# Builds LunchHelper.exe on a GitHub-hosted Windows runner, then submits the
-# unsigned artifact to SignPath Foundation (free code signing for OSS) for
-# Authenticode signing, and attaches the SIGNED exe to the GitHub Release.
+# Builds LunchHelper.exe on a GitHub-hosted Windows runner and publishes a
+# PORTABLE ZIP (exe + WebView2 DLLs + plugins + docs) to the GitHub Release.
 #
 # Triggers:
 #   - pushing a tag like v1.0.0
 #   - manual "Run workflow" (workflow_dispatch)
 #
-# ----------------------------------------------------------------------------
-# ONE-TIME SignPath setup (in the SignPath dashboard + this repo's settings):
-#   1. Apply at https://signpath.io/open-source (needs a public repo + at least
-#      one release already published — that is why we ship an UNSIGNED first
-#      release first).
-#   2. Install the SignPath GitHub App and grant it access to this repo.
-#   3. Create a SignPath project (its slug goes into SIGNPATH_PROJECT_SLUG).
-#   4. Create an Authenticode signing policy (its slug into
-#      SIGNPATH_SIGNING_POLICY_SLUG). Default artifact configuration is used.
-#   5. Repo SECRET  SIGNPATH_API_TOKEN      = API token of a submitter user
-#   6. Repo VARIABLE SIGNPATH_ORGANIZATION_ID = your SignPath organization ID
-# Until SignPath is approved, the "Submit to SignPath" step fails — the build
-# and upload above still succeed, so the pipeline is safe to commit early.
-# ----------------------------------------------------------------------------
+# IMPORTANT: This project currently ships UNSIGNED (SignPath Foundation declined
+# the OSS application). uiAccess therefore stays "false" in app.manifest — an
+# unsigned exe with uiAccess="true" is REFUSED by Windows at launch (it cannot
+# verify the digital signature). For a strong top-most lock screen, extract the
+# zip into C:\Program Files\ (protected directory) or run as administrator.
+# Re-enable the uiAccess flip in CI only after a trusted code-signing
+# certificate is obtained.
 
 on:
   push:
@@ -33,7 +25,7 @@ permissions:
   contents: write   # required to upload release assets
 
 jobs:
-  build-and-sign:
+  build-and-release:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -42,36 +34,16 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Enable uiAccess for signed release
-        run: |
-          (Get-Content app.manifest) -replace 'uiAccess="false"', 'uiAccess="true"' | Set-Content app.manifest -Encoding UTF8
-
       - name: Build (Release)
         run: msbuild LunchHelper.csproj /p:Configuration=Release /p:Platform="Any CPU"
 
-      - name: Upload unsigned artifact
-        id: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: LunchHelper-unsigned
-          path: bin\Release\LunchHelper.exe
+      - name: Pack portable ZIP
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File pack.ps1 -ReleaseDir bin\Release -Version ${{ github.ref_name }} -OutDir ${{ github.workspace }}
 
-      - name: Submit to SignPath for signing
-        id: sign
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
-          organization-id: '${{ vars.SIGNPATH_ORGANIZATION_ID }}'
-          project-slug: 'lunchhelper'
-          signing-policy-slug: 'release-signing'
-          github-artifact-id: '${{ steps.upload.outputs.artifact-id }}'
-          wait-for-completion: true
-          output-artifact-directory: '${{ github.workspace }}\signed'
-
-      - name: Publish signed exe to GitHub Release
+      - name: Publish ZIP to GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: '${{ github.workspace }}\signed\LunchHelper.exe'
+          files: '${{ github.workspace }}\LunchHelper-${{ github.ref_name }}.zip'
         env:
           GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'

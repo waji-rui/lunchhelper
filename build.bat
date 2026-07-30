@@ -76,4 +76,15 @@ if errorlevel 1 (
 
 echo.
 echo BUILD OK -^> bin\Release\LunchHelper.exe
-echo Deploy LunchHelper.exe together with config.json in the same folder.
+
+REM 构建后打包便携 zip（exe + WebView2 DLL + plugins + 文档），供本地直接生成发布包
+echo Packing portable ZIP...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0pack.ps1" -ReleaseDir "%~dp0bin\Release" -Version dev -OutDir "%~dp0"
+if errorlevel 1 (
+  echo.
+  echo PACK FAILED
+  exit /b 1
+)
+
+echo.
+echo DONE -^> LunchHelper-dev.zip

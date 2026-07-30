@@ -5,7 +5,7 @@
 - **许可证**：GNU General Public License v3.0（GPL-3.0）。本仓库代码均以此为许可发布，可自由使用、修改、再分发，但须以相同许可证开源。详见 [`LICENSE`](LICENSE)。
 - **运行环境**：Windows 10 / 11 64 位。系统级依赖为 **.NET Framework 4.8**（Windows 10 1903+ 与 Windows 11 已预装；个别精简系统若缺失，首次运行会由系统引导下载安装）；配置界面渲染依赖系统已装的 **Microsoft Edge WebView2 Runtime**（Win11 预装、多数 Win10 已装，缺失时配置页会给出提示而非白屏）。
 - **依赖立场**：标准库与 Windows 系统能力之外，仅引入**一个**经 GPL-3.0 兼容审查的第三方组件 —— `Microsoft.Web.WebView2`（MIT 许可）。详见 [第三方组件与署名](#第三方组件与署名) 与 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
-- **语言**：C# / WinForms，单文件可执行（`LunchHelper.exe`；WebView2 以 Evergreen 方式使用系统运行时，不打包引擎）。
+- **语言**：C# / WinForms。发布形态为**便携 zip 包**：`LunchHelper.exe` + WebView2 运行所需的几个 DLL（`Microsoft.Web.WebView2.*.dll`、`WebView2Loader.dll` 及 `runtimes/`） + `plugins/`，解压到任意目录即可运行；WebView2 以 Evergreen 方式复用系统已装的 WebView2 Runtime，不打包浏览器引擎本身。
 
 ---
 
@@ -57,37 +57,37 @@
 
 ## 部署与 uiAccess 提示
 
-锁屏窗口的「超级置顶」依赖 `uiAccess="true"` 的应用程序清单，可置顶于几乎所有窗口之上。但该特权有严格的 Windows 启动要求，因此分两种构建：
+锁屏窗口的「超级置顶」依赖 `uiAccess="true"` 的应用程序清单，可置顶于几乎所有窗口之上。但 Windows 对此有严格的启动要求；**当前发布的 Release 为未签名构建（`uiAccess="false"`）**，因此：
 
-| 构建类型 | manifest | 双击运行 | 能否盖任务管理器 |
-|---|---|---|---|
-| **本地 / 未签名预览版** | `uiAccess="false"`（默认） | ✅ 任意目录可启动 | ❌ 仅普通置顶 |
-| **SignPath 签名 Release** | `uiAccess="true"`（CI 自动开启） | 需放 `Program Files` 或开启开关后 UAC 提权 | ✅ 可覆盖 |
+| 放置 / 启动方式 | 能否盖任务管理器 | 说明 |
+|---|---|---|
+| 任意目录双击（普通用户） | ❌ 仅普通置顶 | 能覆盖桌面与大部分窗口，但会被任务管理器（High IL）覆盖 |
+| `C:\Program Files\LunchHelper\` 双击 | ✅ 可覆盖 | 受保护目录 + `uiAccess` 清单，Windows 授予强置顶（无需签名、无 UAC 弹窗） |
+| 任意目录「以管理员身份运行」 | ✅ 可覆盖 | 管理员 High IL 与任务管理器同级；配置里「UI Access 超级置顶」开关控制是否自动申请 UAC 提权 |
 
 ### 具体规则
 
-- **默认构建**：`uiAccess="false"`，从 `Downloads` / 桌面 / U 盘双击都能直接运行，退化为普通置顶窗口（仍能覆盖桌面与大部分窗口）。
-- **签名 Release**：GitHub Actions 会在构建前把 manifest 改成 `uiAccess="true"`；此时要获得完整超级置顶，还需满足：
-  1. exe 位于受保护目录（如 `C:\Program Files\LunchHelper\`）—— 双击即生效，无 UAC；或
-  2. 以管理员身份运行 —— 配置界面中的「UI Access 超级置顶」开关控制是否自动申请 UAC 提权。
+- **当前发布（便携 zip，未签名）**：解压到任意目录双击即用，退化为普通置顶窗口（已能覆盖桌面与大部分程序）；要获得最强置顶，把解压目录放到 `Program Files` 下，或开启「UI Access 超级置顶」开关以管理员运行。
+- **Program Files 路径**：放到 `C:\Program Files\LunchHelper\` 后双击，无需 UAC 即可获得 uiAccess 强置顶（前提是系统默认 UAC 策略 `EnableSecureUIAPaths=1`，绝大多数机器如此）。
+- **管理员运行**：开启「UI Access 超级置顶」后，每次启动会弹一次 UAC 申请提权，提权后即获强置顶。
 
-### 推荐用法
-
-- 想“双击即用、不弹 UAC”：使用默认构建，或将签名版放入 `Program Files`。
-- 想“从任意位置都获得最强置顶”：使用签名版，并开启「UI Access 超级置顶」开关（每次启动会弹一次 UAC）。
+> 已知限制：`Ctrl+Alt+Del` 安全序列打开的安全桌面位于一切窗口（含 uiAccess）之上，真正无法覆盖，属 Windows 设计限制。
 
 ---
 
-## 发布与代码签名（贡献者）
+## 发布（贡献者）
 
-本程序追求**完全免费**的发布路径，使 `uiAccess="true"` 真正生效（即锁屏能盖住一切普通窗口）。Windows 授予 uiAccess 的两个条件之一：**exe 经可信证书代码签名**（详见上文「部署与 uiAccess 提示」）。下面的路径不花一分钱：
+发布形态为**便携 zip 包**（非安装器、非单 exe）。CI（`.github/workflows/build-and-sign.yml`）在打 `v*` 标签或手动触发时，于 GitHub Windows runner 上 `msbuild` 构建，再用 `pack.ps1` 把以下内容打包为 `LunchHelper-<version>.zip` 并挂到 GitHub Release：
 
-1. **首个 Release（未签名即可）**：先把代码推到 GitHub 公共仓库并发布第一个 Release（`LunchHelper.exe` 未签名也能跑，只是退化为普通置顶）。这一步是为了满足 SignPath 对「已有开源发布历史」的要求。
-2. **申请 SignPath Foundation 免费签名**：到 https://signpath.io/open-source 提交申请（开源免费，证书署名 SignPath Foundation，私钥存于其 HSM）。
-3. **CI 自动签名**：仓库已包含 `.github/workflows/build-and-sign.yml`——在 GitHub 托管的 Windows runner 上 `msbuild` 构建，经 `actions/upload-artifact` 上传产物，再调用官方 `signpath/github-action-submit-signing-request` 提交签名，最后把**签名后的 exe** 挂到 GitHub Release。使用前需在仓库 Settings 配置 SignPath 的 API Token 与 Organization ID（详见该工作流文件顶部的注释）。
-4. **InnoSetup 安装器**：`installer/LunchHelper.iss` 把签名后的 exe 装入 `C:\Program Files\LunchHelper\`（默认 UAC 策略下受保护目录同样可授予 uiAccess），免费且兼容。用 `iscc installer\LunchHelper.iss` 构建安装包（注意先替换脚本里的 `<your-username>` 与 AppId GUID）。
+- `LunchHelper.exe`
+- WebView2 运行所需的 DLL：`Microsoft.Web.WebView2.Core.dll`、`Microsoft.Web.WebView2.WinForms.dll`、`Microsoft.Web.WebView2.Wpf.dll`、`WebView2Loader.dll`（及 `runtimes/`）
+- `plugins/`（示例插件）
+- `LICENSE`、`README.md`、`THIRD-PARTY-NOTICES.md`
 
-> 本地开发期想先体验 uiAccess 置顶效果，可用仓库内的 `SelfSignTest.ps1` 做自签名 + 部署到 Program Files（仅本机有效，非分发用途）。
+用户下载 zip 解压即用，无需安装。
+
+### 代码签名状态
+本项目追求**完全免费**的发布路径。曾申请 SignPath Foundation 免费签名，但因项目知名度 / 外部信号不足被拒；**目前以未签名形态发布**，`uiAccess` 保持 `false`。强置顶改由「Program Files 受保护目录」或「管理员运行」实现（见上文）。SignPath 申请保留，待项目知名度提升后可重试；届时在 CI 中恢复“构建前将 `uiAccess` 改为 `true`”的步骤即可。本地开发期体验 uiAccess 置顶可用仓库内 `SelfSignTest.ps1` 做自签名部署到 Program Files（仅本机有效）。
 
 ---
 
@@ -112,8 +112,10 @@ LunchHelper/
 ├── LICENSE                 # GPL-3.0 完整文本
 ├── README.md               # 本文档
 ├── LunchHelper.csproj      # 工程文件（.NET Framework 4.8 / WinForms）
-├── app.manifest            # 含 uiAccess=true 的应用程序清单
+├── app.manifest            # 含 uiAccess 清单（当前默认 false，未签名发布）
 ├── build.bat               # 一键构建脚本（Windows）
+├── pack.ps1                # 构建后打包发布 zip（CI 与本地共用）
+├── plugins/                # 插件目录（含示例插件 Com.Example.Demo）
 ├── src/
 │   ├── Program.cs          # 入口：参数解析、单实例互斥、模式分发、拉起守护
 │   ├── NativeMethods.cs    # 窗口/控制台相关 P/Invoke
