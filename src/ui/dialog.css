@@ -1,0 +1,105 @@
+/* ============================================================
+   MD3 Dialog —— 可复用弹窗组件（消费公共设计令牌）
+   用法：MD3Dialog.show({ title, icon, content, buttons }).then(id => …)
+   动画跟随全局 html.no-anim（来自 Windows“显示动画”开关），无需单独处理。
+   ============================================================ */
+
+.dlg-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity var(--dur-short) var(--ease-standard);
+}
+.dlg-backdrop.open { opacity: 1; }
+
+.dlg-surface {
+  width: min(32rem, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--on-surface);
+  border-radius: var(--shape-xl);          /* MD3 dialog: 28dp */
+  /* MD3 elevation level 3 近似（无独立 elevation 令牌，直接给出阴影） */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3),
+              0 2px 6px rgba(0, 0, 0, .26),
+              0 8px 24px rgba(0, 0, 0, .22);
+  transform: scale(.96) translateY(8px);
+  opacity: 0;
+  transition: transform var(--dur-medium) var(--ease-emphasized),
+              opacity var(--dur-medium) var(--ease-standard);
+}
+.dlg-backdrop.open .dlg-surface {
+  transform: scale(1) translateY(0);
+  opacity: 1;
+}
+
+.dlg-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem 1.5rem 0.5rem;
+}
+.dlg-icon {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--on-surface-variant);
+}
+.dlg-icon svg { width: 100%; height: 100%; fill: currentColor; display: block; }
+.dlg-title {
+  font-size: var(--md-title-large);
+  font-weight: var(--md-title-large-weight);
+  color: var(--on-surface);
+}
+
+.dlg-content {
+  padding: 0.5rem 1.5rem 1.25rem;
+  font-size: var(--md-body-medium);
+  line-height: var(--md-body-medium-line);
+  color: var(--on-surface-variant);
+  overflow-y: auto;
+}
+
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 1.5rem 1.5rem;
+}
+
+/* 弹窗按钮：MD3 text button（默认）/ filled（primary） */
+.dlg-actions .btn {
+  min-height: var(--tap);
+  padding: 0 1.5rem;
+  border: none;
+  border-radius: var(--radius-pill);
+  font-size: var(--md-label-large);
+  font-weight: var(--md-label-large-weight);
+  font-family: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: var(--accent);
+  transition: background var(--dur-short) var(--ease-standard);
+}
+.dlg-actions .btn:hover {
+  background: color-mix(in srgb, var(--on-surface) 8%, transparent);
+}
+.dlg-actions .btn:active {
+  background: color-mix(in srgb, var(--on-surface) 12%, transparent);
+}
+.dlg-actions .btn.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.dlg-actions .btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 92%, #fff);
+}

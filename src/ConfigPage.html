@@ -4,8 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>设置 · LunchHelper</title>
-<style id="md3-tokens">/*CSS_TOKENS*/</style>
-<style id="md3-components">/*CSS_COMPONENTS*/</style>
+  <style id="md3-tokens">/*CSS_TOKENS*/</style>
+  <style id="md3-components">/*CSS_COMPONENTS*/</style>
+  <style id="md3-dialog">/*CSS_DIALOG*/</style>
 </head>
 <body>
 <div class="app">
@@ -113,6 +114,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script>/*JS_DIALOG*/</script>
 <script>
   "use strict";
 
@@ -223,7 +225,17 @@
     if (el) el.addEventListener("change", function () { save(true); });
   });
   // 恢复默认是显式动作，保留独立按钮与成功提示
-  $("btnReset").addEventListener("click", function () { post({ cmd: "reset" }); });
+  $("btnReset").addEventListener("click", function () {
+    MD3Dialog.show({
+      title: "恢复默认",
+      icon: "warning",
+      content: "确定恢复为默认值？此操作不可撤销，当前所有设置将丢失。",
+      buttons: [
+        { id: "ok", text: "恢复", style: "primary" },
+        { id: "cancel", text: "取消" }
+      ]
+    }).then(function (id) { if (id === "ok") post({ cmd: "reset" }); });
+  });
 
   $("menuBtn").addEventListener("click", openSidebar);
   $("overlay").addEventListener("click", closeSidebar);

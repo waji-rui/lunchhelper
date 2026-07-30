@@ -162,9 +162,11 @@ namespace LunchHelper
         /// <summary>
         /// 从内嵌资源读取离线 HTML 与拆分的设计令牌/组件样式，运行时注入到占位符后由
         /// WebView2.NavigateToString 加载（无需联网）。
-        /// HTML 头部仅保留 <c>&lt;style id="md3-tokens"&gt;/*CSS_TOKENS*/&lt;/style&gt;</c> 与
-        /// <c>&lt;style id="md3-components"&gt;/*CSS_COMPONENTS*/&lt;/style&gt;</c> 两个占位符；
-        /// 样式已抽离到 ConfigPage.tokens.css / ConfigPage.components.css（内嵌资源），
+        /// HTML 头部保留 <c>&lt;style id="md3-tokens"&gt;/*CSS_TOKENS*/&lt;/style&gt;</c>、
+        /// <c>&lt;style id="md3-components"&gt;/*CSS_COMPONENTS*/&lt;/style&gt;</c>、
+        /// <c>&lt;style id="md3-dialog"&gt;/*CSS_DIALOG*/&lt;/style&gt;</c> 三个样式占位符，
+        /// 以及 <c>&lt;script&gt;/*JS_DIALOG*/&lt;/script&gt;</c> 弹窗脚本占位符；
+        /// 样式已拆到 ui/tokens.css / ui/components.css / ui/dialog.css（内嵌资源），
         /// 便于锁屏复用与未来主题/插件系统覆盖（换肤只需替换令牌层，组件样式无需改动）。
         /// </summary>
         private string LoadHtml()
@@ -172,10 +174,14 @@ namespace LunchHelper
             var asm = Assembly.GetExecutingAssembly();
             string html = ReadEmbedded(asm, "ConfigPage.html");
             if (html == null) return FallbackHtml();
-            string tokens = ReadEmbedded(asm, "ConfigPage.tokens.css") ?? "";
-            string css = ReadEmbedded(asm, "ConfigPage.components.css") ?? "";
+            string tokens = ReadEmbedded(asm, "ui.tokens.css") ?? "";
+            string css = ReadEmbedded(asm, "ui.components.css") ?? "";
+            string dlgCss = ReadEmbedded(asm, "ui.dialog.css") ?? "";
+            string dlgJs = ReadEmbedded(asm, "ui.dialog.js") ?? "";
             html = html.Replace("/*CSS_TOKENS*/", tokens)
-                       .Replace("/*CSS_COMPONENTS*/", css);
+                       .Replace("/*CSS_COMPONENTS*/", css)
+                       .Replace("/*CSS_DIALOG*/", dlgCss)
+                       .Replace("/*JS_DIALOG*/", dlgJs);
             return html;
         }
 

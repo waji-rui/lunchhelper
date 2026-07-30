@@ -66,15 +66,20 @@
     <Compile Include="src\LockForm.cs" />
   </ItemGroup>
 
-  <!-- 配置界面的离线 HTML 与拆分的样式（均为内嵌资源，运行时由 ConfigForm.LoadHtml 组合注入，
+  <!-- 配置界面与可复用 UI 的离线资源（均为内嵌资源，运行时由 ConfigForm.LoadHtml 组合注入，
        WebView2.NavigateToString 加载，无需联网）：
-       - ConfigPage.html         标记骨架，<head> 内含 /*CSS_TOKENS*/ 与 /*CSS_COMPONENTS*/ 占位符
-       - ConfigPage.tokens.css   设计令牌层（颜色/形状/字体/动效/尺寸令牌）——主题/插件系统的主要覆盖面
-       - ConfigPage.components.css 组件与布局样式，消费上述令牌 -->
+       - ConfigPage.html           标记骨架，<head> 内含 /*CSS_TOKENS*/ /*CSS_COMPONENTS*/ /*CSS_DIALOG*/ 占位符，
+                                     <script> 内含 /*JS_DIALOG*/ 占位符
+       - ui/tokens.css             设计令牌层（颜色/形状/字体/动效/尺寸令牌）——主题/插件系统的主要覆盖面
+       - ui/components.css         通用组件与布局样式（按钮/卡片/输入/开关/导航/页），消费上述令牌
+       - ui/dialog.css             MD3 对话框专属样式（弹窗可复用，插件/配置页共用）
+       - ui/dialog.js              MD3Dialog.show(opts) 弹窗组件（返回 Promise<buttonId>，跟随 no-anim 动画） -->
   <ItemGroup>
     <EmbeddedResource Include="src\ConfigPage.html" />
-    <EmbeddedResource Include="src\ConfigPage.tokens.css" />
-    <EmbeddedResource Include="src\ConfigPage.components.css" />
+    <EmbeddedResource Include="src\ui\tokens.css" />
+    <EmbeddedResource Include="src\ui\components.css" />
+    <EmbeddedResource Include="src\ui\dialog.css" />
+    <EmbeddedResource Include="src\ui\dialog.js" />
   </ItemGroup>
 
   <!-- NuGet 还原生成的 props（定义 PackageReference 相关属性）；经典工程需手动导入。

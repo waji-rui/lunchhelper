@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MD3Dialog 原型预览</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="dialog.css" />
+<style>
+  /* demo 覆盖 components.css 的全局 overflow:hidden，便于预览滚动 */
+  html, body { overflow: auto; height: auto; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+    background: var(--surface);
+    color: var(--on-surface);
+    padding: 2rem;
+    margin: 0;
+  }
+  h1 { font-size: var(--md-title-large); font-weight: var(--md-title-large-weight); margin-top: 0; }
+  p { color: var(--on-surface-variant); line-height: 1.6; }
+  .demo-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1.5rem 0; }
+  .demo-btn {
+    min-height: var(--tap);
+    padding: 0 1.25rem;
+    border: none;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--md-label-large);
+    font-weight: var(--md-label-large-weight);
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .demo-btn.secondary { background: var(--surface-container-high); color: var(--on-surface); }
+  .demo-note { font-size: var(--md-body-medium); }
+  code { background: var(--surface-container-high); padding: .1rem .35rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>MD3Dialog 弹窗原型</h1>
+  <p>纯前端、可复用、跟随系统“显示动画”开关（点“切换动画”模拟 <code>html.no-anim</code>）。配置页与未来插件共用同一组件。</p>
+
+  <div class="demo-row">
+    <button class="demo-btn" onclick="demo('basic')">基础确认</button>
+    <button class="demo-btn" onclick="demo('icon')">带图标（类 Windows 示例）</button>
+    <button class="demo-btn" onclick="demo('html')">自定义内容</button>
+    <button class="demo-btn secondary" onclick="toggleAnim()">切换动画开关</button>
+  </div>
+  <p class="demo-note">打开 DevTools 控制台可见 <code>then(id)</code> 的返回值；ESC / 点遮罩关闭返回 <code>null</code>。</p>
+
+  <script src="dialog.js"></script>
+  <script>
+    function demo(type) {
+      if (type === 'basic') {
+        MD3Dialog.show({
+          title: '恢复默认',
+          icon: 'warning',
+          content: '确定恢复为默认值？此操作不可撤销，当前所有设置将丢失。',
+          buttons: [
+            { id: 'ok', text: '恢复', style: 'primary' },
+            { id: 'cancel', text: '取消' }
+          ]
+        }).then(function (id) { console.log('basic result:', id); });
+      } else if (type === 'icon') {
+        MD3Dialog.show({
+          title: '欢迎',
+          icon: 'info',
+          content: '欢迎使用经过魔改后超级好用的电子白板，是否打开？',
+          buttons: [
+            { id: 'open', text: '打开', style: 'primary' },
+            { id: 'once', text: '仅本次打开' },
+            { id: 'cancel', text: '不打开' }
+          ]
+        }).then(function (id) { console.log('icon result:', id); });
+      } else if (type === 'html') {
+        var c = document.createElement('div');
+        c.innerHTML = '<label style="display:flex;gap:.5rem;align-items:center;cursor:pointer">' +
+          '<input type="checkbox"> 记住我的选择（演示自定义内容插槽）</label>';
+        MD3Dialog.show({
+          title: '自定义内容',
+          content: c,
+          buttons: [{ id: 'ok', text: '确定', style: 'primary' }]
+        }).then(function (id) { console.log('html result:', id); });
+      }
+    }
+    function toggleAnim() {
+      document.documentElement.classList.toggle('no-anim');
+      console.log('no-anim =', document.documentElement.classList.contains('no-anim'));
+    }
+  </script>
+</body>
+</html>
