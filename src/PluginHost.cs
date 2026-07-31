@@ -248,7 +248,8 @@ namespace LunchHelper
             if (string.IsNullOrWhiteSpace(id)) return false;
             string root = PluginsRoot();
             if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return false;
-            var match = new DirectoryInfo(root).GetDirectories().FirstOrDefault(d => d.Name == id);
+            var match = new DirectoryInfo(root).GetDirectories()
+                .FirstOrDefault(d => string.Equals(d.Name, id, StringComparison.OrdinalIgnoreCase));
             if (match == null) return false;
             string disabledPath = Path.Combine(match.FullName, ".disabled");
             if (enable)
@@ -270,18 +271,20 @@ namespace LunchHelper
             return true;
         }
 
-        /// <summary>卸载插件：写 .uninstall 标记，下次启动由 CleanupUninstall 真正删除目录。</summary>
-        public static bool Uninstall(string id)
+        /// <summary>卸载插件：写 .uninstall 标记，下次启动由 CleanupUninstall 真正删除目录。返回 null 表示成功，否则为错误描述。</summary>
+        public static string Uninstall(string id)
         {
-            if (string.IsNullOrWhiteSpace(id)) return false;
+            if (string.IsNullOrWhiteSpace(id)) return "插件 id 为空。";
             string root = PluginsRoot();
-            if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return false;
-            var match = new DirectoryInfo(root).GetDirectories().FirstOrDefault(d => d.Name == id);
-            if (match == null) return false;
+            if (string.IsNullOrEmpty(root)) return "插件根目录解析失败。";
+            if (!Directory.Exists(root)) return "插件目录不存在：" + root;
+            var match = new DirectoryInfo(root).GetDirectories()
+                .FirstOrDefault(d => string.Equals(d.Name, id, StringComparison.OrdinalIgnoreCase));
+            if (match == null) return "未找到插件目录：" + id;
             string uninstallPath = Path.Combine(match.FullName, ".uninstall");
             try { File.WriteAllText(uninstallPath, ""); }
-            catch (Exception ex) { Debug.WriteLine(ex); return false; }
-            return true;
+            catch (Exception ex) { return "写卸载标记失败：" + ex.Message; }
+            return null;
         }
 
         /// <summary>启动时清理带 .uninstall 标记的插件目录（真正删除）。</summary>

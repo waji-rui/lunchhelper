@@ -322,8 +322,8 @@ namespace LunchHelper
                 case "uninstallPlugin":
                     {
                         string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
-                        bool okUn = PluginHost.Uninstall(pid);
-                        SendHostResult(msg.Id, okUn, "{\"ok\":" + (okUn ? "true" : "false") + "}");
+                        string errUn = PluginHost.Uninstall(pid);
+                        SendHostResult(msg.Id, errUn == null, errUn == null ? "{\"ok\":true}" : "null", errUn);
                         break;
                     }
                 case "openPluginsFolder":
