@@ -313,3 +313,63 @@
     animation: none !important;
     transition: none !important;
   }
+
+  /* ---- 插件管理页 ---- */
+  .plugin-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .plugin-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--surface-container-high);
+    border: none;
+    border-radius: var(--radius-card);
+    padding: 0.75rem 1rem;
+  }
+  .plugin-row .text {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+  .plugin-row .plg-name {
+    font-size: var(--md-body-large);
+    color: var(--on-surface);
+  }
+  .plugin-row .plg-meta {
+    font-size: var(--md-body-medium);
+    color: var(--on-surface-variant);
+  }
+  .plugin-row .switch { flex: 0 0 auto; }
+  .plugin-row .btn.danger { flex: 0 0 auto; }
+  .btn.danger {
+    background: transparent;
+    color: var(--error);
+    border: 1px solid var(--error);
+    height: var(--tap);
+    min-width: 5.5rem;
+    padding: 0 1rem;
+    border-radius: var(--radius-pill);
+    font-size: var(--md-label-large);
+    font-weight: var(--md-label-large-weight);
+    font-family: inherit;
+    cursor: pointer;
+    transition: background var(--dur-short) var(--ease-standard);
+  }
+  .btn.danger:hover { background: color-mix(in srgb, var(--error) 12%, transparent); }
+  .btn.primary {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .btn.primary:hover {
+    background: color-mix(in srgb, var(--on-accent) 8%, var(--accent));
+  }
+  .muted {
+    color: var(--on-surface-variant);
+    font-size: var(--md-body-medium);
+  }

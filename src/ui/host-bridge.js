@@ -60,7 +60,23 @@
       showDialog: function (opts) {
         if (!window.MD3Dialog) return Promise.reject(new Error("MD3Dialog 未加载"));
         return MD3Dialog.show(opts || {});
-      }
+      },
+      // 插件管理：列出已安装（含启禁状态）
+      listPlugins: function () { return postAsync("listPlugins", null); },
+      // 启用/禁用插件（写 .disabled）
+      setPluginEnabled: function (id, enabled) { return postAsync("setPluginEnabled", { pluginId: id, enabled: enabled }); },
+      // 卸载插件（写 .uninstall 标记）
+      uninstallPlugin: function (id) { return postAsync("uninstallPlugin", { pluginId: id }); },
+      // 打开插件根目录（资源管理器）
+      openPluginsFolder: function () { return postAsync("openPluginsFolder", null); },
+      // 打开指定插件目录
+      openPluginFolder: function (id) { return postAsync("openPluginFolder", { pluginId: id }); },
+      // 启动本地 zip 安装（返回确认预览）
+      installPlugin: function (id, zipPath) { return postAsync("installPlugin", { pluginId: id, zipPath: zipPath }); },
+      // 确认安装（真正解压）
+      confirmInstall: function (id) { return postAsync("confirmInstall", { installId: id }); },
+      // 取消安装（清除待确认会话）
+      cancelInstall: function (id) { return postAsync("cancelInstall", { installId: id }); }
     }
   };
 })();

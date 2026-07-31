@@ -43,6 +43,8 @@ namespace LunchHelper
     internal class ConfigForm : Form
     {
         private readonly bool _debug;
+        /// <summary>待确认的插件安装会话（pluginId -> zipPath）。</summary>
+        private static System.Collections.Generic.Dictionary<string, string> InstallSession = new System.Collections.Generic.Dictionary<string, string>();
         private WebView2 _web;
         private Color _accent;
         private Color _onAccent;
@@ -306,6 +308,85 @@ namespace LunchHelper
                 case "areAnimationsEnabled":
                     SendHostResult(msg.Id, true, NativeMethods.AreAnimationsEnabled() ? "true" : "false");
                     break;
+                case "listPlugins":
+                    SendHostResult(msg.Id, true, PluginHost.ToJson(PluginHost.ListPlugins()));
+                    break;
+                case "setPluginEnabled":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
+                        bool en = msg.Data != null && msg.Data.Enabled;
+                        bool okPl = PluginHost.SetEnabled(pid, en);
+                        SendHostResult(msg.Id, okPl, "{\"ok\":" + (okPl ? "true" : "false") + ",\"enabled\":" + (en ? "true" : "false") + "}");
+                        break;
+                    }
+                case "uninstallPlugin":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
+                        bool okUn = PluginHost.Uninstall(pid);
+                        SendHostResult(msg.Id, okUn, "{\"ok\":" + (okUn ? "true" : "false") + "}");
+                        break;
+                    }
+                case "openPluginsFolder":
+                    {
+                        string root = PluginHost.PluginsRoot();
+                        if (!string.IsNullOrEmpty(root)) SafeOpenUrl(root);
+                        SendHostResult(msg.Id, true, "null");
+                        break;
+                    }
+                case "openPluginFolder":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
+                        string root = PluginHost.PluginsRoot();
+                        if (!string.IsNullOrEmpty(root))
+                        {
+                            string dir = Path.Combine(root, pid);
+                            if (Directory.Exists(dir)) SafeOpenUrl(dir);
+                            else SendHostResult(msg.Id, false, null, "插件目录不存在：" + pid);
+                        }
+                        else SendHostResult(msg.Id, false, null, "插件根目录不可用");
+                        break;
+                    }
+                case "installPlugin":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
+                        string zip = msg.Data != null ? (msg.Data.ZipPath ?? "") : "";
+                        if (string.IsNullOrWhiteSpace(pid) || string.IsNullOrWhiteSpace(zip))
+                        {
+                            SendHostResult(msg.Id, false, null, "缺少 pluginId 或 zipPath。");
+                            break;
+                        }
+                        if (!File.Exists(zip))
+                        {
+                            SendHostResult(msg.Id, false, null, "未找到 zip 文件：" + zip);
+                            break;
+                        }
+                        // 暂存安装会话，等前端确认后再真正安装
+                        InstallSession[pid] = zip;
+                        SendHostResult(msg.Id, true, "{\"pluginId\":" + JsonString(pid) + ",\"zipPath\":" + JsonString(zip) + "}");
+                        break;
+                    }
+                case "confirmInstall":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.InstallId ?? "") : "";
+                        if (string.IsNullOrWhiteSpace(pid) || !InstallSession.ContainsKey(pid))
+                        {
+                            SendHostResult(msg.Id, false, null, "无待确认的安装会话：" + (pid ?? ""));
+                            break;
+                        }
+                        string zip = InstallSession[pid];
+                        InstallSession.Remove(pid);
+                        string err = PluginHost.InstallFromZip(zip, pid);
+                        SendHostResult(msg.Id, err == null, err == null ? "null" : JsonString(err));
+                        break;
+                    }
+                case "cancelInstall":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.InstallId ?? "") : "";
+                        if (!string.IsNullOrWhiteSpace(pid) && InstallSession.ContainsKey(pid))
+                            InstallSession.Remove(pid);
+                        SendHostResult(msg.Id, true, "null");
+                        break;
+                    }
                 default:
                     SendHostResult(msg.Id, false, null, "未知宿主操作: " + (msg.Op ?? ""));
                     break;
@@ -701,6 +782,11 @@ namespace LunchHelper
             [DataMember(Name = "slogan")] public string Slogan { get; set; }
             [DataMember(Name = "enableUiAccess")] public bool EnableUiAccess { get; set; }
             [DataMember(Name = "password")] public string Password { get; set; }
+            // 插件管理：宿主桥接请求携带的插件标识与状态
+            [DataMember(Name = "pluginId")] public string PluginId { get; set; }
+            [DataMember(Name = "enabled")] public bool Enabled { get; set; }
+            [DataMember(Name = "installId")] public string InstallId { get; set; }
+            [DataMember(Name = "zipPath")] public string ZipPath { get; set; }
             // 宿主弹窗（C# 主动触发）的用户操作结果，由前端 cmd:"dialogResult" 回传
             [DataMember(Name = "buttonId")] public string ButtonId { get; set; }
         }

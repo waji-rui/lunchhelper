@@ -19,6 +19,8 @@
       <a class="nav-item active" data-target="basic" data-label="基本"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></span>基本</a>
       <a class="nav-item" data-target="backup" data-label="备份与恢复"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 12c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2zm-2-9c-4.97 0-9 4.03-9 9H0l4 4 4-4H5c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.51 0-2.91-.48-4.06-1.3l-1.42 1.44C8.04 20.3 9.94 21 12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9z"/></svg></span>备份与恢复</a>
       <div class="nav-divider"></div>
+      <a class="nav-item" data-target="plugins" data-label="插件"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11V8.5h-2V6h-1.5v2.5H13v-2.5h-2v2.5H8.5V6H6.5v2.5H5V11H3.5v2H5V15.5h1.5V17H9v-2.5h6V17h2.5v-2.5H19V11z"/></svg></span>插件</a>
+      <div class="nav-div thinking ider"></div>
       <a class="nav-item" data-target="about" data-label="关于"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg></span>关于</a>
     </nav>
   </aside>
@@ -94,6 +96,23 @@
         </div>
         <div class="ctl"><button class="btn secondary" id="btnReset">恢复默认</button></div>
       </div>
+    </section>
+
+    <!-- 插件管理页：已安装 / 启禁 / 卸载 / 本地安装 -->
+    <section id="plugins" class="page">
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11V8.5h-2V6h-1.5v2.5H13v-2.5h-2v2.5H8.5V6H6.5v2.5H5V11H3.5v2H5V15.5h1.5V17H9v-2.5h6V17h2.5v-2.5H19V11z"/></svg></div>
+        <div class="text">
+          <div class="t">插件管理</div>
+          <div class="s">启用 / 禁用 / 卸载本地插件，或从 zip 安装新插件</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ctl">
+          <button class="btn primary" id="btnInstallPlugin">从 zip 安装插件…</button>
+        </div>
+      </div>
+      <div id="pluginList" class="plugin-list"></div>
     </section>
 
     <!-- 关于页：内联全部关于内容，不再打开独立窗口 -->
@@ -217,6 +236,8 @@
   // 重复注册（pageId 已存在）自动跳过；插件页 HTML 经 innerHTML 注入（信任本地插件）。
   window.__registerPlugins = function (plugins) {
     if (!plugins || !plugins.length) return;
+    // 插件页默认图标（未在 plugin.json 注册 icon 时 fallback），与「插件」管理页导航图标一致
+    var defaultPluginIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11V8.5h-2V6h-1.5v2.5H13v-2.5h-2v2.5H8.5V6H6.5v2.5H5V11H3.5v2H5V15.5h1.5V17H9v-2.5h6V17h2.5v-2.5H19V11z"/></svg>';
     var nav = document.querySelector("#sidebar nav");
     var content = $("content");
     var aboutNav = document.querySelector('.nav-item[data-target="about"]');
@@ -226,11 +247,12 @@
       (p.pages || []).forEach(function (pg) {
         var pageId = "plugin:" + (p.id || "") + ":" + (pg.id || "");
         if (document.getElementById(pageId)) return; // 跳过重复
+        var iconHtml = p.icon || defaultPluginIcon;
         var a = document.createElement("a");
         a.className = "nav-item";
         a.setAttribute("data-target", pageId);
         a.setAttribute("data-label", pg.title || pg.id);
-        a.textContent = pg.title || pg.id;
+        a.innerHTML = '<span class="icon">' + iconHtml + '</span>' + (pg.title || pg.id);
         if (aboutNav) nav.insertBefore(a, aboutNav); else nav.appendChild(a);
         var sec = document.createElement("section");
         sec.className = "page";
@@ -307,5 +329,75 @@
   post({ cmd: "ready" });
 </script>
 <script>/*JS_HOST*/</script>
-</body>
+
+    <!-- 插件管理页交互逻辑（前面脚本已定义 MD3Dialog 与 host） -->
+    <script>
+      var _installInput = document.createElement("input");
+      _installInput.type = "file";
+      _installInput.accept = ".zip";
+      _installInput.style.display = "none";
+      document.body.appendChild(_installInput);
+      $("btnInstallPlugin").addEventListener("click", function () { _installInput.click(); });
+
+      function renderPluginRow(p) {
+        var row = document.createElement("div");
+        row.className = "plugin-row";
+        row.innerHTML =
+          '<div class="text">' +
+            '<div class="plg-name">' + (p.name || p.id) + '</div>' +
+            '<div class="plg-meta">版本 ' + (p.version || "1.0.0") + ' · 作者 ' + (p.author || "未知") + '</div>' +
+          '</div>' +
+          '<label class="switch"><input type="checkbox" ' + (p.enabled ? "checked" : "") + ' data-pid="' + p.id + '"><span class="track"><span class="thumb"></span></span></label>' +
+          '<button class="btn danger" data-uninstall="' + p.id + '">卸载</button>';
+        row.querySelector("input[type=checkbox]").addEventListener("change", function () {
+          var pid = this.getAttribute("data-pid");
+          window.LunchHelper.host.setPluginEnabled(pid, this.checked);
+        });
+        row.querySelector("[data-uninstall]").addEventListener("click", function () {
+          var pid = this.getAttribute("data-uninstall");
+          window.LunchHelper.host.uninstallPlugin(pid);
+        });
+        return row;
+      }
+
+      function refreshPluginList() {
+        var list = document.getElementById("pluginList");
+        if (!list) return;
+        window.LunchHelper.host.listPlugins().then(function (plugins) {
+          list.innerHTML = "";
+          if (!plugins || !plugins.length) {
+            list.innerHTML = '<div class="muted">暂无已安装插件。</div>';
+            return;
+          }
+          plugins.forEach(function (p) { list.appendChild(renderPluginRow(p)); });
+        });
+      }
+
+      if (document.getElementById("pluginList")) refreshPluginList();
+      window.addEventListener("focus", function () {
+        if (document.getElementById("pluginList")) refreshPluginList();
+      });
+
+      _installInput.addEventListener("change", function () {
+        if (_installInput.files && _installInput.files[0]) {
+          var name = _installInput.files[0].name.replace(/\.zip$/i, "");
+          window.LunchHelper.host.installPlugin(name, _installInput.value).then(function () {
+            MD3Dialog.show({
+              title: "安装插件",
+              icon: "info",
+              content: "即将安装插件 " + name + "。确定继续？",
+              buttons: [
+                { id: "ok", text: "安装", style: "primary" },
+                { id: "cancel", text: "取消" }
+              ]
+            }).then(function (bid) {
+              if (bid === "ok") window.LunchHelper.host.confirmInstall(name);
+              else window.LunchHelper.host.cancelInstall(name);
+            });
+          });
+        }
+      });
+    </script>
+
+    </body>
 </html>
