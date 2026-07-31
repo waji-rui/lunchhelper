@@ -66,8 +66,13 @@ window.MD3Dialog = (function () {
       // ---- content（文本或自定义 DOM） ----
       var content = el('div', 'dlg-content');
       if (opts.content) {
-        if (typeof opts.content === 'string') content.textContent = opts.content;
-        else if (opts.content.nodeType) content.appendChild(opts.content);
+        if (typeof opts.content === 'string') {
+          // 若内容含 HTML 标签则渲染，否则当纯文本（安全兜底）
+          if (opts.content.indexOf('<') >= 0) content.innerHTML = opts.content;
+          else content.textContent = opts.content;
+        } else if (opts.content.nodeType) {
+          content.appendChild(opts.content);
+        }
       }
       surface.appendChild(content);
 

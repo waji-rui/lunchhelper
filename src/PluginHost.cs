@@ -121,6 +121,8 @@ namespace LunchHelper
 
             foreach (var dir in Directory.GetDirectories(root))
             {
+                // 已标记卸载的插件：本次忽略，下次启动 CleanupUninstall 会真正删除
+                if (File.Exists(Path.Combine(dir, ".uninstall"))) continue;
                 string jsonPath = Path.Combine(dir, "plugin.json");
                 if (!File.Exists(jsonPath)) continue;
                 PluginManifest manifest;

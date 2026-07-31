@@ -375,7 +375,9 @@
         }
         row.querySelector("[data-uninstall]").addEventListener("click", function () {
           var pid = this.getAttribute("data-uninstall");
-          window.LunchHelper.host.uninstallPlugin(pid);
+          window.LunchHelper.host.uninstallPlugin(pid)
+            .then(function () { refreshPluginList(); })
+            .catch(function (e) { showError("卸载失败", e && e.message ? e.message : e); });
         });
         return row;
       }
