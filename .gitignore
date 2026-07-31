@@ -35,3 +35,9 @@ docs/MD3设计规范.md
 
 # ===== Python 缓存（脚本生成的字节码，非源码） =====
 __pycache__/
+
+# ===== 构建产物（可重建的便携发布包，勿提交） =====
+LunchHelper-dev.zip
+
+# 内部学习笔记，仅本地参考、不提交
+docs/classisland-plugin-study.md
