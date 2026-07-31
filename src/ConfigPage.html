@@ -399,23 +399,46 @@
       });
 
       _installInput.addEventListener("change", function () {
-        if (_installInput.files && _installInput.files[0]) {
-          var name = _installInput.files[0].name.replace(/\.zip$/i, "");
-          window.LunchHelper.host.installPlugin(name, _installInput.value).then(function () {
+        var file = _installInput.files && _installInput.files[0];
+        if (!file) return;
+        // WebView2 的 file input 不暴露完整路径，故用 FileReader 读成 base64 传给 C#
+        var reader = new FileReader();
+        reader.onload = function () {
+          var b64 = (reader.result || "").split(",")[1] || "";
+          if (!b64) { toast("无法读取 zip 文件。"); return; }
+          window.LunchHelper.host.installPlugin(file.name, b64).then(function (res) {
+            var info = (typeof res === "string") ? JSON.parse(res) : res;
+            var plgName = info.name || file.name;
+            var meta = "版本 " + (info.version || "?") + " · 作者 " + (info.author || "未知");
+            var pageList = (info.pages && info.pages.length) ? info.pages.map(function (p) { return p.title || p.id; }).join("、") : "（无页面）";
             MD3Dialog.show({
               title: "安装插件",
               icon: "info",
-              content: "即将安装插件 " + name + "。确定继续？",
+              content:
+                '<div class="plg-name">' + esc(plgName) + '</div>' +
+                '<div class="plg-meta">' + esc(meta) + '</div>' +
+                '<div class="plg-deps">包含页面：' + esc(pageList) + '</div>' +
+                '<div class="muted" style="margin-top:.5rem">即将安装到插件目录，确定继续？</div>',
               buttons: [
                 { id: "ok", text: "安装", style: "primary" },
                 { id: "cancel", text: "取消" }
               ]
             }).then(function (bid) {
-              if (bid === "ok") window.LunchHelper.host.confirmInstall(name);
-              else window.LunchHelper.host.cancelInstall(name);
+              if (bid === "ok") {
+                window.LunchHelper.host.confirmInstall(info.pluginId)
+                  .then(function () { toast("安装成功。"); refreshPluginList(); })
+                  .catch(function (e) { toast("安装失败：" + (e && e.message ? e.message : e)); refreshPluginList(); });
+              } else {
+                window.LunchHelper.host.cancelInstall(info.pluginId).then(function () { refreshPluginList(); });
+              }
             });
+          }).catch(function (err) {
+            toast("安装预览失败：" + (err && err.message ? err.message : err));
           });
-        }
+        };
+        reader.onerror = function () { toast("读取 zip 失败。"); };
+        reader.readAsDataURL(file);
+        _installInput.value = ""; // 允许再次选择同一文件
       });
     </script>
 

@@ -349,20 +349,53 @@ namespace LunchHelper
                 case "installPlugin":
                     {
                         string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
-                        string zip = msg.Data != null ? (msg.Data.ZipPath ?? "") : "";
-                        if (string.IsNullOrWhiteSpace(pid) || string.IsNullOrWhiteSpace(zip))
+                        string b64 = msg.Data != null ? (msg.Data.ZipData ?? "") : "";
+                        if (string.IsNullOrWhiteSpace(pid) || string.IsNullOrWhiteSpace(b64))
                         {
-                            SendHostResult(msg.Id, false, null, "缺少 pluginId 或 zipPath。");
+                            SendHostResult(msg.Id, false, null, "缺少 pluginId 或 zip 数据。");
                             break;
                         }
-                        if (!File.Exists(zip))
+                        // base64 -> 临时 zip 文件（WebView2 的 file input 不暴露完整路径，故走 base64 通道）
+                        string tmpZip = Path.Combine(Path.GetTempPath(), "lunchhelper_install_" + Guid.NewGuid().ToString("N") + ".zip");
+                        try
                         {
-                            SendHostResult(msg.Id, false, null, "未找到 zip 文件：" + zip);
+                            File.WriteAllBytes(tmpZip, Convert.FromBase64String(b64));
+                        }
+                        catch (Exception ex)
+                        {
+                            SendHostResult(msg.Id, false, null, "zip 数据解码失败：" + ex.Message);
                             break;
                         }
-                        // 暂存安装会话，等前端确认后再真正安装
-                        InstallSession[pid] = zip;
-                        SendHostResult(msg.Id, true, "{\"pluginId\":" + JsonString(pid) + ",\"zipPath\":" + JsonString(zip) + "}");
+                        // 读取 zip 内 plugin.json 拿真实 id + 预览信息（不解压全部）
+                        string err;
+                        PluginManifest manifest = PluginHost.PeekManifest(tmpZip, out err);
+                        if (manifest == null || string.IsNullOrWhiteSpace(manifest.Id))
+                        {
+                            try { File.Delete(tmpZip); } catch { }
+                            SendHostResult(msg.Id, false, null, "无法读取插件清单：" + (err ?? "未知错误"));
+                            break;
+                        }
+                        // 以真实 id 作为安装会话 key（前端 name 可能与真实 id 不符）
+                        InstallSession[manifest.Id] = tmpZip;
+                        var sb = new System.Text.StringBuilder();
+                        sb.Append("{\"pluginId\":").Append(JsonString(manifest.Id));
+                        sb.Append(",\"name\":").Append(JsonString(manifest.Name ?? manifest.Id));
+                        sb.Append(",\"version\":").Append(JsonString(manifest.Version ?? "1.0.0"));
+                        sb.Append(",\"author\":").Append(JsonString(manifest.Author ?? "未知作者"));
+                        sb.Append(",\"pages\":[");
+                        if (manifest.Pages != null)
+                        {
+                            bool first = true;
+                            foreach (var pg in manifest.Pages)
+                            {
+                                if (pg == null) continue;
+                                if (!first) sb.Append(',');
+                                first = false;
+                                sb.Append("{\"id\":").Append(JsonString(pg.Id ?? "")).Append(",\"title\":").Append(JsonString(pg.Title ?? pg.Id ?? "")).Append('}');
+                            }
+                        }
+                        sb.Append("]}");
+                        SendHostResult(msg.Id, true, sb.ToString());
                         break;
                     }
                 case "confirmInstall":
@@ -373,9 +406,11 @@ namespace LunchHelper
                             SendHostResult(msg.Id, false, null, "无待确认的安装会话：" + (pid ?? ""));
                             break;
                         }
-                        string zip = InstallSession[pid];
+                        string tmpZip = InstallSession[pid];
                         InstallSession.Remove(pid);
-                        string err = PluginHost.InstallFromZip(zip, pid);
+                        string err = PluginHost.InstallFromZip(tmpZip, pid);
+                        try { if (File.Exists(tmpZip)) File.Delete(tmpZip); } catch { }
+                        if (err == null) RegisterPlugins(); // 安装成功后让侧边栏实时出现新插件
                         SendHostResult(msg.Id, err == null, err == null ? "null" : JsonString(err));
                         break;
                     }
@@ -383,7 +418,11 @@ namespace LunchHelper
                     {
                         string pid = msg.Data != null ? (msg.Data.InstallId ?? "") : "";
                         if (!string.IsNullOrWhiteSpace(pid) && InstallSession.ContainsKey(pid))
+                        {
+                            string tmpZip = InstallSession[pid];
                             InstallSession.Remove(pid);
+                            try { if (File.Exists(tmpZip)) File.Delete(tmpZip); } catch { }
+                        }
                         SendHostResult(msg.Id, true, "null");
                         break;
                     }
@@ -787,6 +826,7 @@ namespace LunchHelper
             [DataMember(Name = "enabled")] public bool Enabled { get; set; }
             [DataMember(Name = "installId")] public string InstallId { get; set; }
             [DataMember(Name = "zipPath")] public string ZipPath { get; set; }
+            [DataMember(Name = "zipData")] public string ZipData { get; set; }
             // 宿主弹窗（C# 主动触发）的用户操作结果，由前端 cmd:"dialogResult" 回传
             [DataMember(Name = "buttonId")] public string ButtonId { get; set; }
         }

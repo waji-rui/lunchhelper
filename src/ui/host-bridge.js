@@ -72,7 +72,7 @@
       // 打开指定插件目录
       openPluginFolder: function (id) { return postAsync("openPluginFolder", { pluginId: id }); },
       // 启动本地 zip 安装（返回确认预览）
-      installPlugin: function (id, zipPath) { return postAsync("installPlugin", { pluginId: id, zipPath: zipPath }); },
+      installPlugin: function (id, zipData) { return postAsync("installPlugin", { pluginId: id, zipData: zipData }); },
       // 确认安装（真正解压）
       confirmInstall: function (id) { return postAsync("confirmInstall", { installId: id }); },
       // 取消安装（清除待确认会话）

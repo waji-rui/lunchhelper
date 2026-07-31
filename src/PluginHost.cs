@@ -298,6 +298,36 @@ namespace LunchHelper
             }
         }
 
+        /// <summary>从 zip 内仅读取 plugin.json 解析为清单（不解压全部），供安装预览与取真实 id。</summary>
+        public static PluginManifest PeekManifest(string zipPath, out string error)
+        {
+            error = null;
+            try
+            {
+                using (var za = ZipFile.OpenRead(zipPath))
+                {
+                    ZipArchiveEntry entry = null;
+                    foreach (var e in za.Entries)
+                    {
+                        // 顶层 <id>/plugin.json（或根 plugin.json）
+                        if (e.FullName.EndsWith("plugin.json", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(e.Name))
+                        {
+                            entry = e;
+                            break;
+                        }
+                    }
+                    if (entry == null) { error = "zip 内未找到 plugin.json"; return null; }
+                    using (var ms = new MemoryStream())
+                    {
+                        entry.Open().CopyTo(ms);
+                        ms.Position = 0;
+                        return (PluginManifest)new DataContractJsonSerializer(typeof(PluginManifest)).ReadObject(ms);
+                    }
+                }
+            }
+            catch (Exception ex) { error = ex.Message; return null; }
+        }
+
         /// <summary>从 zip 安装插件（解压到 plugins/&lt;id&gt;）。</summary>
         public static string InstallFromZip(string zipPath, string id)
         {
