@@ -321,6 +321,17 @@ namespace LunchHelper
                     {
                         entry.Open().CopyTo(ms);
                         ms.Position = 0;
+                        // 兼容带 UTF-8 BOM 的文件（记事本/PowerShell Set-Content 默认带 BOM）
+                        byte[] bom = System.Text.Encoding.UTF8.GetPreamble();
+                        if (ms.Length >= bom.Length)
+                        {
+                            byte[] head = new byte[bom.Length];
+                            ms.Read(head, 0, bom.Length);
+                            bool hasBom = true;
+                            for (int i = 0; i < bom.Length; i++)
+                                if (head[i] != bom[i]) { hasBom = false; break; }
+                            if (!hasBom) ms.Position = 0; // 没有 BOM，回到开头
+                        }
                         return (PluginManifest)new DataContractJsonSerializer(typeof(PluginManifest)).ReadObject(ms);
                     }
                 }

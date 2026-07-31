@@ -398,6 +398,12 @@
         if (document.getElementById("pluginList")) refreshPluginList();
       });
 
+      // 安装错误弹窗（不自动消失，避免用户来不及看）
+      function showError(title, msg) {
+        if (!window.MD3Dialog) { toast(title + "：" + msg); return; }
+        MD3Dialog.show({ title: title, icon: "error", content: esc(msg), buttons: [{ id: "ok", text: "关闭" }] });
+      }
+
       _installInput.addEventListener("change", function () {
         var file = _installInput.files && _installInput.files[0];
         if (!file) return;
@@ -427,13 +433,13 @@
               if (bid === "ok") {
                 window.LunchHelper.host.confirmInstall(info.pluginId)
                   .then(function () { toast("安装成功。"); refreshPluginList(); })
-                  .catch(function (e) { toast("安装失败：" + (e && e.message ? e.message : e)); refreshPluginList(); });
+                  .catch(function (e) { showError("安装失败", e && e.message ? e.message : e); refreshPluginList(); });
               } else {
                 window.LunchHelper.host.cancelInstall(info.pluginId).then(function () { refreshPluginList(); });
               }
             });
           }).catch(function (err) {
-            toast("安装预览失败：" + (err && err.message ? err.message : err));
+            showError("安装预览失败", err && err.message ? err.message : err);
           });
         };
         reader.onerror = function () { toast("读取 zip 失败。"); };
