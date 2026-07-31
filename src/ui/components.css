@@ -373,3 +373,17 @@
     color: var(--on-surface-variant);
     font-size: var(--md-body-medium);
   }
+  .plugin-row .plg-deps {
+    font-size: var(--md-body-small);
+    color: var(--on-surface-variant);
+    opacity: 0.85;
+  }
+  .plugin-row.is-error {
+    background: color-mix(in srgb, var(--error) 10%, var(--surface-container-high));
+    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+  }
+  .plugin-row .plg-error {
+    font-size: var(--md-body-small);
+    color: var(--error);
+    margin-top: 0.125rem;
+  }

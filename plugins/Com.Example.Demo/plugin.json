@@ -1,6 +1,11 @@
 {
   "id": "com.example.demo",
   "name": "示例插件",
+  "version": "1.0.0",
+  "author": "LunchHelper",
+  "description": "用于演示插件 API 的最小示例插件。",
+  "apiVersion": "1",
+  "dependencies": [],
   "pages": [
     { "id": "hello", "title": "示例页", "src": "pages/demo.html" }
   ]

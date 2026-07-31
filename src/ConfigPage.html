@@ -339,20 +339,40 @@
       document.body.appendChild(_installInput);
       $("btnInstallPlugin").addEventListener("click", function () { _installInput.click(); });
 
+      function esc(s) {
+        return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+          return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c];
+        });
+      }
       function renderPluginRow(p) {
         var row = document.createElement("div");
-        row.className = "plugin-row";
+        row.className = "plugin-row" + (p.error ? " is-error" : "");
+        var meta = '版本 ' + esc(p.version || "1.0.0") + ' · 作者 ' + esc(p.author || "未知");
+        if (p.apiVersion) meta += ' · API ' + esc(p.apiVersion);
+        var depsHtml = "";
+        if (p.dependencies && p.dependencies.length)
+          depsHtml = '<div class="plg-deps">依赖：' + p.dependencies.map(esc).join("、") + '</div>';
+        var rightCtl;
+        if (p.error) {
+          rightCtl = '<button class="btn danger" data-uninstall="' + esc(p.id) + '">卸载</button>';
+        } else {
+          rightCtl =
+            '<label class="switch"><input type="checkbox" ' + (p.enabled ? "checked" : "") + ' data-pid="' + esc(p.id) + '"><span class="track"><span class="thumb"></span></span></label>' +
+            '<button class="btn danger" data-uninstall="' + esc(p.id) + '">卸载</button>';
+        }
         row.innerHTML =
           '<div class="text">' +
-            '<div class="plg-name">' + (p.name || p.id) + '</div>' +
-            '<div class="plg-meta">版本 ' + (p.version || "1.0.0") + ' · 作者 ' + (p.author || "未知") + '</div>' +
+            '<div class="plg-name">' + esc(p.name || p.id) + '</div>' +
+            '<div class="plg-meta">' + meta + '</div>' +
+            (p.error ? '<div class="plg-error">⚠ ' + esc(p.error) + '</div>' : depsHtml) +
           '</div>' +
-          '<label class="switch"><input type="checkbox" ' + (p.enabled ? "checked" : "") + ' data-pid="' + p.id + '"><span class="track"><span class="thumb"></span></span></label>' +
-          '<button class="btn danger" data-uninstall="' + p.id + '">卸载</button>';
-        row.querySelector("input[type=checkbox]").addEventListener("change", function () {
-          var pid = this.getAttribute("data-pid");
-          window.LunchHelper.host.setPluginEnabled(pid, this.checked);
-        });
+          rightCtl;
+        if (!p.error) {
+          row.querySelector("input[type=checkbox]").addEventListener("change", function () {
+            var pid = this.getAttribute("data-pid");
+            window.LunchHelper.host.setPluginEnabled(pid, this.checked);
+          });
+        }
         row.querySelector("[data-uninstall]").addEventListener("click", function () {
           var pid = this.getAttribute("data-uninstall");
           window.LunchHelper.host.uninstallPlugin(pid);

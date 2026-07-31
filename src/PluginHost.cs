@@ -29,6 +29,10 @@ namespace LunchHelper
         [DataMember(Name = "description")] public string Description { get; set; }
         // 插件页侧边栏图标（SVG 文件路径，相对插件根目录）；未指定时前端 fallback 到默认图标
         [DataMember(Name = "icon")] public string Icon { get; set; }
+        // 插件要求的宿主 API 主版本（如 "1"）；留空表示兼容当前版本
+        [DataMember(Name = "apiVersion")] public string ApiVersion { get; set; }
+        // 依赖的其它插件 id 列表（必选；缺失/禁用/异常则本插件标 Error 不加载）
+        [DataMember(Name = "dependencies")] public List<string> Dependencies { get; set; }
         [DataMember(Name = "pages")] public List<PluginPageManifest> Pages { get; set; }
     }
 
@@ -65,6 +69,8 @@ namespace LunchHelper
         [DataMember(Name = "enabled")] public bool Enabled { get; set; }
         [DataMember(Name = "disabledFile")] public bool DisabledFile { get; set; }
         [DataMember(Name = "error")] public string Error { get; set; }
+        [DataMember(Name = "dependencies")] public List<string> Dependencies { get; set; }
+        [DataMember(Name = "apiVersion")] public string ApiVersion { get; set; }
     }
 
     /// <summary>
@@ -78,21 +84,45 @@ namespace LunchHelper
             catch (Exception ex) { Debug.WriteLine("插件根目录解析失败: " + ex.Message); return null; }
         }
 
-        /// <summary>列出已安装插件（用于管理页），跳过被禁用/损坏的插件。</summary>
-        public static List<PluginView> ListPlugins()
+        /// <summary>当前宿主插件 API 主版本。插件 plugin.json 的 apiVersion 主版本不得高于此值。</summary>
+        internal const string CurrentApiVersion = "1";
+
+        /// <summary>解析插件主版本号（取首个数字段），无法解析时按 1 处理（宽容对待旧插件）。</summary>
+        private static int MajorVersion(string v)
         {
-            var result = new List<PluginView>();
+            if (string.IsNullOrWhiteSpace(v)) return 1;
+            var part = v.Split('.')[0];
+            int m;
+            return int.TryParse(part, out m) ? m : 1;
+        }
+
+        /// <summary>插件要求的 apiVersion 是否与当前宿主兼容（旧版本插件向后兼容）。</summary>
+        private static bool IsApiVersionCompatible(string v)
+        {
+            return MajorVersion(v) <= MajorVersion(CurrentApiVersion);
+        }
+
+        /// <summary>插件原始解析记录（含错误与禁用状态）。</summary>
+        private sealed class RawPlugin
+        {
+            public PluginManifest Manifest;
+            public string Dir;
+            public bool Disabled;
+            public string Error; // 非空表示不可加载
+            public bool Loadable { get { return Error == null && !Disabled && Manifest != null; } }
+        }
+
+        /// <summary>扫描并解析所有插件清单，计算禁用/错误/依赖状态（不保证加载顺序）。</summary>
+        private static Dictionary<string, RawPlugin> ParseAll()
+        {
+            var map = new Dictionary<string, RawPlugin>();
             string root = PluginsRoot();
-            if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return result;
+            if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return map;
 
             foreach (var dir in Directory.GetDirectories(root))
             {
                 string jsonPath = Path.Combine(dir, "plugin.json");
                 if (!File.Exists(jsonPath)) continue;
-
-                string disabledPath = Path.Combine(dir, ".disabled");
-                bool disabled = File.Exists(disabledPath);
-
                 PluginManifest manifest;
                 try
                 {
@@ -102,24 +132,112 @@ namespace LunchHelper
                 catch (Exception ex)
                 {
                     Debug.WriteLine("插件清单解析失败 " + jsonPath + ": " + ex.Message);
-                    result.Add(new PluginView { Id = Path.GetFileName(dir), Name = "(清单解析失败)", Enabled = false, DisabledFile = disabled, Error = ex.Message });
+                    map[Path.GetFileName(dir)] = new RawPlugin { Dir = dir, Manifest = null, Disabled = File.Exists(Path.Combine(dir, ".disabled")), Error = "清单解析失败：" + ex.Message };
                     continue;
                 }
                 if (manifest == null || string.IsNullOrWhiteSpace(manifest.Id)) continue;
+                bool disabled = File.Exists(Path.Combine(dir, ".disabled"));
+                map[manifest.Id] = new RawPlugin { Manifest = manifest, Dir = dir, Disabled = disabled };
+            }
 
-                result.Add(new PluginView
+            // apiVersion 不兼容（独立于依赖链，先标）
+            foreach (var rp in map.Values)
+            {
+                if (rp.Manifest == null || rp.Error != null) continue;
+                if (!IsApiVersionCompatible(rp.Manifest.ApiVersion))
+                    rp.Error = "API 版本不兼容（要求 apiVersion " + (rp.Manifest.ApiVersion ?? "?") + "，宿主为 " + CurrentApiVersion + "）";
+            }
+
+            // 依赖缺失/禁用/异常 + 循环依赖检测（递归传播）
+            foreach (var rp in map.Values)
+                PropagateDepErrors(rp, map, new HashSet<string>());
+
+            return map;
+        }
+
+        /// <summary>递归解析依赖链，缺失/禁用/异常/循环则标记 Error。</summary>
+        private static void PropagateDepErrors(RawPlugin rp, Dictionary<string, RawPlugin> map, HashSet<string> stack)
+        {
+            if (rp.Error != null || rp.Manifest == null) return;
+            if (stack.Contains(rp.Manifest.Id)) { rp.Error = "循环依赖（与依赖项互相引用）"; return; }
+            stack.Add(rp.Manifest.Id);
+            if (rp.Manifest.Dependencies != null)
+            {
+                foreach (var dep in rp.Manifest.Dependencies)
                 {
-                    Id = manifest.Id,
-                    Name = manifest.Name,
-                    Version = manifest.Version ?? "1.0.0",
-                    Author = manifest.Author ?? "未知作者",
-                    Description = manifest.Description ?? "",
-                    Enabled = !disabled,
-                    DisabledFile = disabled,
-                    Error = null
+                    if (string.IsNullOrWhiteSpace(dep)) continue;
+                    RawPlugin depRp;
+                    if (!map.TryGetValue(dep, out depRp) || depRp.Manifest == null) { rp.Error = "缺少依赖：" + dep; stack.Remove(rp.Manifest.Id); return; }
+                    if (depRp.Disabled) { rp.Error = "依赖未启用：" + dep; stack.Remove(rp.Manifest.Id); return; }
+                    PropagateDepErrors(depRp, map, stack);
+                    if (depRp.Error != null) { rp.Error = "依赖异常：" + dep; stack.Remove(rp.Manifest.Id); return; }
+                }
+            }
+            stack.Remove(rp.Manifest.Id);
+        }
+
+        /// <summary>对可加载插件做依赖拓扑排序，返回加载顺序（依赖在前）。</summary>
+        private static List<RawPlugin> TopoOrder(Dictionary<string, RawPlugin> map)
+        {
+            var loadables = map.Values.Where(r => r.Loadable).ToList();
+            var indegree = new Dictionary<string, int>();
+            var dependents = new Dictionary<string, List<RawPlugin>>();
+            foreach (var r in loadables)
+            {
+                indegree[r.Manifest.Id] = 0;
+                dependents[r.Manifest.Id] = new List<RawPlugin>();
+            }
+            foreach (var r in loadables)
+            {
+                foreach (var dep in r.Manifest.Dependencies ?? new List<string>())
+                {
+                    if (dependents.ContainsKey(dep))
+                    {
+                        indegree[r.Manifest.Id]++;
+                        dependents[dep].Add(r);
+                    }
+                }
+            }
+            var q = new Queue<RawPlugin>(loadables.Where(r => indegree[r.Manifest.Id] == 0));
+            var order = new List<RawPlugin>();
+            while (q.Count > 0)
+            {
+                var r = q.Dequeue();
+                order.Add(r);
+                foreach (var d in dependents[r.Manifest.Id])
+                    if (--indegree[d.Manifest.Id] == 0) q.Enqueue(d);
+            }
+            foreach (var r in loadables) if (!order.Contains(r)) order.Add(r); // 兜底（环已标 error，正常到不了）
+            return order;
+        }
+
+        /// <summary>列出已安装插件（用于管理页），含禁用/错误状态与依赖信息。</summary>
+        public static List<PluginView> ListPlugins()
+        {
+            var map = ParseAll();
+            var views = new List<PluginView>();
+            foreach (var rp in map.Values)
+            {
+                if (rp.Manifest == null)
+                {
+                    views.Add(new PluginView { Id = Path.GetFileName(rp.Dir), Name = "(清单解析失败)", Enabled = false, DisabledFile = rp.Disabled, Error = rp.Error });
+                    continue;
+                }
+                views.Add(new PluginView
+                {
+                    Id = rp.Manifest.Id,
+                    Name = rp.Manifest.Name,
+                    Version = rp.Manifest.Version ?? "1.0.0",
+                    Author = rp.Manifest.Author ?? "未知作者",
+                    Description = rp.Manifest.Description ?? "",
+                    Enabled = !rp.Disabled,
+                    DisabledFile = rp.Disabled,
+                    Error = rp.Error,
+                    Dependencies = rp.Manifest.Dependencies ?? new List<string>(),
+                    ApiVersion = rp.Manifest.ApiVersion ?? ""
                 });
             }
-            return result;
+            return views;
         }
 
         /// <summary>启用/禁用插件：写/删 .disabled 标记。</summary>
@@ -200,41 +318,25 @@ namespace LunchHelper
 
         public static List<PluginInfo> LoadAll()
         {
+            var map = ParseAll();
+            var order = TopoOrder(map);
             var result = new List<PluginInfo>();
-            string root = PluginsRoot();
-            if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return result;
-
-            foreach (var dir in Directory.GetDirectories(root))
+            foreach (var rp in order)
             {
-                string jsonPath = Path.Combine(dir, "plugin.json");
-                if (!File.Exists(jsonPath)) continue;
-
-                PluginManifest manifest;
-                try
-                {
-                    using (var ms = new MemoryStream(File.ReadAllBytes(jsonPath)))
-                        manifest = (PluginManifest)new DataContractJsonSerializer(typeof(PluginManifest)).ReadObject(ms);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("插件清单解析失败 " + jsonPath + ": " + ex.Message);
-                    continue;
-                }
-                if (manifest == null || string.IsNullOrWhiteSpace(manifest.Id)) continue;
-
+                if (!rp.Loadable || rp.Manifest == null) continue;
                 string iconHtml = null;
-                if (!string.IsNullOrWhiteSpace(manifest.Icon))
+                if (!string.IsNullOrWhiteSpace(rp.Manifest.Icon))
                 {
-                    string iconPath = Path.Combine(dir, manifest.Icon);
+                    string iconPath = Path.Combine(rp.Dir, rp.Manifest.Icon);
                     if (File.Exists(iconPath)) iconHtml = File.ReadAllText(iconPath);
                 }
-                var info = new PluginInfo { Id = manifest.Id, Name = manifest.Name, Icon = iconHtml, Pages = new List<PluginPage>() };
-                if (manifest.Pages != null)
+                var info = new PluginInfo { Id = rp.Manifest.Id, Name = rp.Manifest.Name, Icon = iconHtml, Pages = new List<PluginPage>() };
+                if (rp.Manifest.Pages != null)
                 {
-                    foreach (var pm in manifest.Pages)
+                    foreach (var pm in rp.Manifest.Pages)
                     {
                         if (pm == null || string.IsNullOrWhiteSpace(pm.Src)) continue;
-                        string htmlPath = Path.Combine(dir, pm.Src);
+                        string htmlPath = Path.Combine(rp.Dir, pm.Src);
                         string html = File.Exists(htmlPath) ? File.ReadAllText(htmlPath) : "";
                         info.Pages.Add(new PluginPage { Id = pm.Id, Title = pm.Title ?? pm.Id, Html = html });
                     }
