@@ -63,10 +63,18 @@
       },
       // 插件管理：列出已安装（含启禁状态）
       listPlugins: function () { return postAsync("listPlugins", null); },
-      // 启用/禁用插件（写 .disabled）
+      // 插件详情（含 README Markdown 与图标），用于三栏布局右侧详情面板
+      getPluginDetails: function (id) { return postAsync("getPluginDetails", { pluginId: id }); },
+      // 启用/禁用插件（写 .disabled，下次启动才真正生效）
       setPluginEnabled: function (id, enabled) { return postAsync("setPluginEnabled", { pluginId: id, enabled: enabled }); },
-      // 卸载插件（写 .uninstall 标记）
+      // 卸载插件（写 .uninstall 标记，重启才真正删除）
       uninstallPlugin: function (id) { return postAsync("uninstallPlugin", { pluginId: id }); },
+      // 撤销卸载（删除 .uninstall 标记，重启前可撤销）
+      cancelUninstall: function (id) { return postAsync("cancelUninstall", { pluginId: id }); },
+      // 强制删除（立即删除目录；若被占用则回退为延迟卸载）
+      forceDeletePlugin: function (id) { return postAsync("forceDeletePlugin", { pluginId: id }); },
+      // 立即重启应用程序（用相同参数启动新进程后退出当前进程）
+      restartApp: function () { return postAsync("restartApp", null); },
       // 打开插件根目录（资源管理器）
       openPluginsFolder: function () { return postAsync("openPluginsFolder", null); },
       // 打开指定插件目录

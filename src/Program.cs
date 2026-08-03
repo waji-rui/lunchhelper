@@ -51,9 +51,25 @@ namespace LunchHelper
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            // restartApp 拉起的新进程会先等待旧进程退出，避免单实例互斥冲突
+            int waitPid = ExtractRestartWaitPid(ref args);
+            if (waitPid > 0)
+            {
+                try
+                {
+                    var oldProc = Process.GetProcessById(waitPid);
+                    oldProc.WaitForExit(8000);
+                }
+                catch { }
+            }
+
             bool debug = Contains(args, "-debug");
             bool lockMode = Contains(args, "-lock");
             bool guardian = Contains(args, "-guardian");
+
+            // 日志尽早初始化：提权降级、插件清理/安装等启动早期步骤都可能产生需要排查的日志，
+            // 必须在这些逻辑之前就绪，错误才能落到 release/logs。
+            Logger.Init(ConfigManager.Load().LogRetentionDays, debug);
 
             // 按需自提权：仅当配置了「启用 UI Access」时才尝试。
             // uiAccess 生效 = 可信签名 +（受保护目录 OR 提权）。
@@ -90,6 +106,13 @@ namespace LunchHelper
                 return;
             }
 
+            // 插件延迟生效：先清理待卸载（删除 .uninstall 目录），再应用待安装（解压 .pending 包）。
+            // 二者都在重启时执行，使“卸载/安装”在用户点击后于下次启动时真正生效（可撤销窗口期内只是标记）。
+            try { PluginHost.CleanupUninstall(); }
+            catch (Exception ex) { Logger.Error("清理待卸载插件失败: " + ex.Message); }
+            try { PluginHost.ApplyPendingInstalls(); }
+            catch (Exception ex) { Logger.Error("应用待安装插件失败: " + ex.Message); }
+
             // 单实例：仅对用户启动的模式（配置 / 锁屏）做互斥约束
             using (var mutex = new Mutex(true, AppMutexName, out bool created))
             {
@@ -108,8 +131,6 @@ namespace LunchHelper
 
                 if (lockMode)
                 {
-                    int retention = ConfigManager.Load().LogRetentionDays;
-                    Logger.Init(retention, debug);
                     Logger.Info("启动锁屏模式" + (debug ? "（调试）" : ""));
 
                     int guardianPid = LaunchGuardian();
@@ -128,12 +149,10 @@ namespace LunchHelper
                     if (debug)
                     {
                         ConsoleHelper.ShowConsole();
-                        Logger.Init(ConfigManager.Load().LogRetentionDays, true);
                         Logger.Info("启动配置界面（调试模式，控制台已置顶）");
                     }
                     else
                     {
-                        Logger.Init(ConfigManager.Load().LogRetentionDays, false);
                         Logger.Info("启动配置界面");
                     }
                     try
@@ -154,6 +173,24 @@ namespace LunchHelper
                 if (string.Equals(a, target, StringComparison.OrdinalIgnoreCase))
                     return true;
             return false;
+        }
+
+        /// <summary>解析并移除 `-restartwait <pid>` 参数（由 restartApp 用于避免单实例冲突）。</summary>
+        private static int ExtractRestartWaitPid(ref string[] args)
+        {
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], "-restartwait", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(args[i + 1], out int pid))
+                {
+                    var list = new System.Collections.Generic.List<string>(args);
+                    list.RemoveAt(i + 1);
+                    list.RemoveAt(i);
+                    args = list.ToArray();
+                    return pid;
+                }
+            }
+            return -1;
         }
 
         /// <summary>

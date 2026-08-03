@@ -20,7 +20,7 @@
       <a class="nav-item" data-target="backup" data-label="备份与恢复"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 12c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2zm-2-9c-4.97 0-9 4.03-9 9H0l4 4 4-4H5c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.51 0-2.91-.48-4.06-1.3l-1.42 1.44C8.04 20.3 9.94 21 12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9z"/></svg></span>备份与恢复</a>
       <div class="nav-divider"></div>
       <a class="nav-item" data-target="plugins" data-label="插件"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11V8.5h-2V6h-1.5v2.5H13v-2.5h-2v2.5H8.5V6H6.5v2.5H5V11H3.5v2H5V15.5h1.5V17H9v-2.5h6V17h2.5v-2.5H19V11z"/></svg></span>插件</a>
-      <div class="nav-div thinking ider"></div>
+      <div class="nav-divider" id="plugin-divider"></div>
       <a class="nav-item" data-target="about" data-label="关于"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg></span>关于</a>
     </nav>
   </aside>
@@ -98,21 +98,26 @@
       </div>
     </section>
 
-    <!-- 插件管理页：已安装 / 启禁 / 卸载 / 本地安装 -->
-    <section id="plugins" class="page">
-      <div class="card">
-        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11V8.5h-2V6h-1.5v2.5H13v-2.5h-2v2.5H8.5V6H6.5v2.5H5V11H3.5v2H5V15.5h1.5V17H9v-2.5h6V17h2.5v-2.5H19V11z"/></svg></div>
-        <div class="text">
-          <div class="t">插件管理</div>
-          <div class="s">启用 / 禁用 / 卸载本地插件，或从 zip 安装新插件</div>
+    <!-- 插件管理页：ClassIsland 式三栏（桌面）/ 两栏切换（窄屏） -->
+    <section id="plugins" class="page plugin-page">
+      <div class="plugin-layout" id="pluginLayout">
+        <div class="plugin-list-col">
+          <div class="plugin-list-header">
+            <div class="plugin-list-header-text">
+              <div class="plugin-list-title">插件</div>
+            </div>
+            <button class="btn primary" id="btnInstallPlugin" title="从 zip 安装">+ 安装</button>
+          </div>
+          <div id="pluginPendingBanner" class="plugin-banner">
+            <span class="banner-text">有更改待重启生效</span>
+            <button class="btn primary" id="btnRestartNow">立即重启</button>
+          </div>
+          <div id="pluginList" class="plugin-list"></div>
+        </div>
+        <div class="plugin-detail-col" id="pluginDetailPanel">
+          <div class="plugin-detail-empty">在左侧选择一个插件查看详情</div>
         </div>
       </div>
-      <div class="card">
-        <div class="ctl">
-          <button class="btn primary" id="btnInstallPlugin">从 zip 安装插件…</button>
-        </div>
-      </div>
-      <div id="pluginList" class="plugin-list"></div>
     </section>
 
     <!-- 关于页：内联全部关于内容，不再打开独立窗口 -->
@@ -133,8 +138,10 @@
 
 <div class="toast" id="toast"></div>
 
-<script>/*JS_DIALOG*/</script>
-<script>
+    <script>/*JS_ANIM*/</script>
+    <script>/*JS_DIALOG*/</script>
+    <script>/*JS_MARKDOWN*/</script>
+    <script>
   "use strict";
 
   var $ = function (id) { return document.getElementById(id); };
@@ -240,9 +247,10 @@
     var defaultPluginIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 11V8.5h-2V6h-1.5v2.5H13v-2.5h-2v2.5H8.5V6H6.5v2.5H5V11H3.5v2H5V15.5h1.5V17H9v-2.5h6V17h2.5v-2.5H19V11z"/></svg>';
     var nav = document.querySelector("#sidebar nav");
     var content = $("content");
-    var aboutNav = document.querySelector('.nav-item[data-target="about"]');
+    // 静态 divider 位于「插件」与「关于」之间；插件页插入到 divider 之前，
+    // 这样无论有没有第三方插件页，divider 始终作为插件组与「关于」的分隔。
+    var pluginDivider = document.getElementById("plugin-divider");
     var aboutSection = $("about");
-    var insertedAny = false;
     plugins.forEach(function (p) {
       (p.pages || []).forEach(function (pg) {
         var pageId = "plugin:" + (p.id || "") + ":" + (pg.id || "");
@@ -253,7 +261,7 @@
         a.setAttribute("data-target", pageId);
         a.setAttribute("data-label", pg.title || pg.id);
         a.innerHTML = '<span class="icon">' + iconHtml + '</span>' + (pg.title || pg.id);
-        if (aboutNav) nav.insertBefore(a, aboutNav); else nav.appendChild(a);
+        if (pluginDivider) nav.insertBefore(a, pluginDivider); else nav.appendChild(a);
         var sec = document.createElement("section");
         sec.className = "page";
         sec.id = pageId;
@@ -263,7 +271,6 @@
           e.preventDefault();
           showPage(pageId); closeSidebar();
         });
-        insertedAny = true;
         // 可选初始化钩子：插件片段内含 data-plugin-init="globalFnName" 时调用
         var initEl = sec.querySelector("[data-plugin-init]");
         if (initEl) {
@@ -272,13 +279,6 @@
         }
       });
     });
-    // 若插入了新插件页，在「关于」前补一条 divider（与内置基本/备份的分组一致）
-    if (insertedAny && aboutNav && !document.getElementById("plugin-divider")) {
-      var div = document.createElement("div");
-      div.className = "nav-divider";
-      div.id = "plugin-divider";
-      nav.insertBefore(div, aboutNav);
-    }
   };
 
   function openSidebar() {
@@ -338,60 +338,346 @@
       _installInput.style.display = "none";
       document.body.appendChild(_installInput);
       $("btnInstallPlugin").addEventListener("click", function () { _installInput.click(); });
+      var btnRestartNow = $("btnRestartNow");
+      if (btnRestartNow) btnRestartNow.addEventListener("click", function () {
+        window.LunchHelper.host.restartApp().catch(function (e) {
+          showError("重启失败", e && e.message ? e.message : e);
+        });
+      });
 
       function esc(s) {
         return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
           return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c];
         });
       }
-      function renderPluginRow(p) {
-        var row = document.createElement("div");
-        row.className = "plugin-row" + (p.error ? " is-error" : "");
-        var meta = '版本 ' + esc(p.version || "1.0.0") + ' · 作者 ' + esc(p.author || "未知");
-        if (p.apiVersion) meta += ' · API ' + esc(p.apiVersion);
-        var depsHtml = "";
-        if (p.dependencies && p.dependencies.length)
-          depsHtml = '<div class="plg-deps">依赖：' + p.dependencies.map(esc).join("、") + '</div>';
-        var rightCtl;
-        if (p.error) {
-          rightCtl = '<button class="btn danger" data-uninstall="' + esc(p.id) + '">卸载</button>';
-        } else {
-          rightCtl =
-            '<label class="switch"><input type="checkbox" ' + (p.enabled ? "checked" : "") + ' data-pid="' + esc(p.id) + '"><span class="track"><span class="thumb"></span></span></label>' +
-            '<button class="btn danger" data-uninstall="' + esc(p.id) + '">卸载</button>';
+      function pluginRowState(p) {
+        if (p.pendingUninstall) return "pending-uninstall";
+        if (p.pendingInstall) return "pending-install";
+        if (p.error) return "error";
+        if (p.effectiveEnabled !== p.enabled) return p.enabled ? "pending-enable" : "pending-disable";
+        return "normal";
+      }
+
+      var selectedPluginId = null;
+      // 默认插件图标：与侧边栏「插件」导航一致的积木拼图
+      var DEFAULT_PLUGIN_ICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23CAC4D0'%3E%3Cpath d='M19 11V8.5h-2V6h-1.5v2.5H13v-2.5h-2v2.5H8.5V6H6.5v2.5H5V11H3.5v2H5V15.5h1.5V17H9v-2.5h6V17h2.5v-2.5H19V11z'/%3E%3C/svg%3E";
+
+      function setPluginIcon(imgEl, textEl, iconDataUri, name) {
+        if (imgEl) { imgEl.style.display = "none"; imgEl.src = ""; }
+        if (textEl) {
+          textEl.textContent = (name || "?").charAt(0).toUpperCase();
+          textEl.style.display = "";
         }
-        row.innerHTML =
-          '<div class="text">' +
-            '<div class="plg-name">' + esc(p.name || p.id) + '</div>' +
-            '<div class="plg-meta">' + meta + '</div>' +
-            (p.error ? '<div class="plg-error">⚠ ' + esc(p.error) + '</div>' : depsHtml) +
+        var src = iconDataUri || DEFAULT_PLUGIN_ICON;
+        if (imgEl) {
+          imgEl.src = src;
+          imgEl.onload = function () { imgEl.style.display = ""; if (textEl) textEl.style.display = "none"; };
+          imgEl.onerror = function () { imgEl.style.display = "none"; if (textEl) textEl.style.display = ""; };
+        }
+      }
+
+      // ---- 列表项：图标 + 名称 + 描述 + 状态点 + 开关/撤销 ----
+      function renderPluginItem(p) {
+        var item = document.createElement("div");
+        item.className = "plugin-item";
+        item.setAttribute("data-key", p.id);
+        item.setAttribute("data-plugin-id", p.id);
+        item.setAttribute("data-state", pluginRowState(p));
+        item.innerHTML =
+          '<div class="plg-item-icon">' +
+            '<img class="plg-item-icon-img" alt="" style="display:none">' +
+            '<span class="plg-item-icon-text"></span>' +
           '</div>' +
-          rightCtl;
-        if (!p.error) {
-          row.querySelector("input[type=checkbox]").addEventListener("change", function () {
-            var pid = this.getAttribute("data-pid");
-            window.LunchHelper.host.setPluginEnabled(pid, this.checked);
+          '<div class="plg-item-body">' +
+            '<div class="plg-item-name">' + esc(p.name || p.id) + '</div>' +
+            '<div class="plg-item-desc">' + esc(itemDesc(p)) + '</div>' +
+          '</div>' +
+          '<div class="plg-item-status">' +
+            '<span class="plg-status-dot" style="display:none"></span>' +
+            '<button class="btn ghost action-cancel-uninstall" data-action="cancel-uninstall" data-pid="' + esc(p.id) + '">撤销卸载</button>' +
+            '<button class="btn ghost action-cancel-install" data-action="cancel-install" data-pid="' + esc(p.id) + '">撤销安装</button>' +
+          '</div>' +
+          '<div class="plg-item-actions">' +
+            '<label class="switch"><input type="checkbox" data-action="toggle" data-pid="' + esc(p.id) + '"><span class="track"><span class="thumb"></span></span></label>' +
+          '</div>';
+        var cb = item.querySelector("input[type=checkbox]");
+        if (cb) cb.checked = p.enabled;
+        updateStatusDot(item, p);
+        setPluginIcon(item.querySelector(".plg-item-icon-img"), item.querySelector(".plg-item-icon-text"), p.icon, p.name);
+        attachItemEvents(item);
+        return item;
+      }
+
+      function updatePluginItem(item, p) {
+        var state = pluginRowState(p);
+        item.setAttribute("data-state", state);
+        item.classList.toggle("is-error", !!p.error);
+        item.classList.toggle("is-pending", state !== "normal");
+        item.classList.toggle("is-selected", selectedPluginId === p.id);
+
+        var nameEl = item.querySelector(".plg-item-name");
+        if (nameEl) UIAnim.setText(nameEl, esc(p.name || p.id));
+        var descEl = item.querySelector(".plg-item-desc");
+        if (descEl) UIAnim.setText(descEl, esc(itemDesc(p)));
+        updateStatusDot(item, p);
+        setPluginIcon(item.querySelector(".plg-item-icon-img"), item.querySelector(".plg-item-icon-text"), p.icon, p.name);
+        var cb = item.querySelector("input[type=checkbox]");
+        if (cb && cb.checked !== p.enabled) cb.checked = p.enabled;
+      }
+
+      function itemDesc(p) {
+        var d = (p.description || "").replace(/\r\n/g, "\n").split("\n")[0] || (p.version || "1.0.0");
+        return d.length > 60 ? d.slice(0, 60) + "…" : d;
+      }
+
+      // 列表项状态小圆点：只在 pending/error 时显示，避免长 badge 挤占标题
+      function statusDotClass(p) {
+        if (p.error || p.pendingUninstall) return "warn";
+        return "info";
+      }
+      function updateStatusDot(el, p) {
+        var dot = el.querySelector(".plg-status-dot");
+        if (!dot) return;
+        var state = pluginRowState(p);
+        var show = state !== "normal";
+        dot.style.display = show ? "" : "none";
+        if (show) dot.className = "plg-status-dot " + statusDotClass(p);
+      }
+
+      function attachItemEvents(item) {
+        item.addEventListener("click", function (e) {
+          if (e.target.closest(".switch") || e.target.closest("button")) return;
+          selectPlugin(item.getAttribute("data-plugin-id"));
+        });
+
+        var cb = item.querySelector("input[type=checkbox]");
+        if (cb) cb.addEventListener("change", function () {
+          var pid = this.getAttribute("data-pid");
+          var checked = this.checked;
+          window.LunchHelper.host.setPluginEnabled(pid, checked)
+            .then(function () { refreshPluginList(); })
+            .catch(function (e) { showError("切换失败", e && e.message ? e.message : e); refreshPluginList(); });
+        });
+
+        var cu = item.querySelector("button[data-action=cancel-uninstall]");
+        if (cu) cu.addEventListener("click", function () {
+          var pid = this.getAttribute("data-pid");
+          window.LunchHelper.host.cancelUninstall(pid)
+            .then(function () { refreshPluginList(); })
+            .catch(function (e) { showError("撤销失败", e && e.message ? e.message : e); });
+        });
+
+        var ci = item.querySelector("button[data-action=cancel-install]");
+        if (ci) ci.addEventListener("click", function () {
+          var pid = this.getAttribute("data-pid");
+          window.LunchHelper.host.cancelInstall(pid)
+            .then(function () { refreshPluginList(); })
+            .catch(function (e) { showError("撤销失败", e && e.message ? e.message : e); });
+        });
+      }
+
+      function selectPlugin(id) {
+        selectedPluginId = id;
+        var list = document.getElementById("pluginList");
+        if (list) {
+          Array.from(list.querySelectorAll(".plugin-item")).forEach(function (it) {
+            it.classList.toggle("is-selected", it.getAttribute("data-plugin-id") === id);
           });
         }
-        row.querySelector("[data-uninstall]").addEventListener("click", function () {
-          var pid = this.getAttribute("data-uninstall");
-          window.LunchHelper.host.uninstallPlugin(pid)
+        loadPluginDetail(id);
+        // 窄屏（<=48rem）下选中插件后进入详情视图
+        var layout = document.getElementById("pluginLayout");
+        if (layout && window.matchMedia("(max-width: 48rem)").matches) {
+          layout.classList.add("detail-open");
+        }
+      }
+
+      // ---- 详情面板 ----
+      function loadPluginDetail(id) {
+        var panel = document.getElementById("pluginDetailPanel");
+        if (!panel) return;
+        panel.innerHTML = '<div class="plugin-detail-loading">加载中…</div>';
+        window.LunchHelper.host.getPluginDetails(id).then(function (detail) {
+          panel.innerHTML = renderPluginDetail(detail);
+          setPluginIcon(
+            panel.querySelector(".plg-detail-icon-img"),
+            panel.querySelector(".plg-detail-icon-text"),
+            detail.icon,
+            detail.name
+          );
+          attachDetailEvents(panel, detail);
+        }).catch(function (e) {
+          panel.innerHTML = '<div class="plugin-detail-empty">加载详情失败：' + esc(e && e.message ? e.message : e) + '</div>';
+        });
+      }
+
+      function statusChips(detail) {
+        var chip = '';
+        if (detail.pendingInstall) chip = '<span class="plg-status-chip info">待安装</span>';
+        else if (detail.pendingUninstall) chip = '<span class="plg-status-chip warn">待卸载</span>';
+        else if (detail.enabled && detail.effectiveEnabled) chip = '<span class="plg-status-chip success">已启用</span>';
+        else if (!detail.enabled && !detail.effectiveEnabled) chip = '<span class="plg-status-chip">已禁用</span>';
+        else if (detail.enabled && !detail.effectiveEnabled) chip = '<span class="plg-status-chip info">待启用</span>';
+        else chip = '<span class="plg-status-chip info">待禁用</span>';
+        return chip;
+      }
+
+      function renderPluginDetail(detail) {
+        if (!detail) return '<div class="plugin-detail-empty">未找到插件详情。</div>';
+        var iconBlock =
+          '<div class="plg-detail-icon">' +
+            '<img class="plg-detail-icon-img" alt="" style="display:none">' +
+            '<span class="plg-detail-icon-text"></span>' +
+          '</div>';
+        var hasReadme = !!detail.readme;
+        var metaParts = ['v' + esc(detail.version || "1.0.0")];
+        if (detail.author) metaParts.push('作者 ' + esc(detail.author));
+        if (detail.apiVersion) metaParts.push('API ' + esc(detail.apiVersion));
+        var errorBlock = detail.error ? '<div class="plg-detail-error">' + esc(detail.error) + '</div>' : '';
+        return (
+          '<div class="plugin-detail" data-plugin-id="' + esc(detail.id) + '">' +
+            '<div class="plugin-detail-header">' +
+              '<button class="plugin-detail-back" data-action="back" aria-label="返回列表">←</button>' +
+              iconBlock +
+              '<div class="plg-detail-meta">' +
+                '<div class="plg-detail-name">' + esc(detail.name || detail.id) + '</div>' +
+                '<div class="plg-detail-sub">' + metaParts.join(' · ') + '</div>' +
+                '<div class="plg-detail-status">' + statusChips(detail) + '</div>' +
+                errorBlock +
+              '</div>' +
+            '</div>' +
+            '<div class="plugin-detail-tabs">' +
+              '<button class="tab active" data-tab="overview">概览</button>' +
+              (hasReadme ? '<button class="tab" data-tab="readme">README</button>' : '') +
+            '</div>' +
+            '<div class="plugin-detail-body">' +
+              '<div class="tab-panel active" data-panel="overview">' +
+                '<div class="markdown-body">' + Markdown.toHtml(detail.description || "暂无简介。") + '</div>' +
+                (detail.dependencies && detail.dependencies.length ? '<div class="plg-detail-deps">依赖插件：' + detail.dependencies.map(esc).join("、") + '</div>' : '') +
+              '</div>' +
+              (hasReadme ? '<div class="tab-panel" data-panel="readme"><div class="markdown-body">' + Markdown.toHtml(detail.readme) + '</div></div>' : '') +
+            '</div>' +
+            '<div class="plugin-detail-footer">' +
+              '<div class="plg-detail-toggle"><label class="switch"><input type="checkbox" data-action="toggle" ' + (detail.enabled ? "checked" : "") + '><span class="track"><span class="thumb"></span></span></label><span class="plg-toggle-label">' + (detail.enabled ? "已启用" : "已禁用") + '</span></div>' +
+              '<div class="plugin-detail-actions">' +
+                (detail.pendingUninstall ? '<button class="btn ghost action-cancel-uninstall" data-action="cancel-uninstall">撤销卸载</button>' : '<button class="btn ghost action-uninstall" data-action="uninstall">卸载</button>') +
+                '<button class="btn danger action-force-delete" data-action="force-delete">强制删除</button>' +
+                (detail.pendingInstall ? '<button class="btn ghost action-cancel-install" data-action="cancel-install">撤销安装</button>' : '') +
+                '<button class="btn ghost" data-action="open-folder">打开目录</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }
+
+      function attachDetailEvents(panel, detail) {
+        var layout = document.getElementById("pluginLayout");
+        var backBtn = panel.querySelector(".plugin-detail-back");
+        if (backBtn) backBtn.addEventListener("click", function () {
+          if (layout) layout.classList.remove("detail-open");
+        });
+
+        var tabs = panel.querySelectorAll(".plugin-detail-tabs .tab");
+        tabs.forEach(function (tab) {
+          tab.addEventListener("click", function () {
+            var tabName = this.getAttribute("data-tab");
+            tabs.forEach(function (t) { t.classList.toggle("active", t === tab); });
+            panel.querySelectorAll(".tab-panel").forEach(function (p) {
+              p.classList.toggle("active", p.getAttribute("data-panel") === tabName);
+            });
+          });
+        });
+
+        var cb = panel.querySelector('input[data-action="toggle"]');
+        if (cb) cb.addEventListener("change", function () {
+          window.LunchHelper.host.setPluginEnabled(detail.id, this.checked)
+            .then(function () { refreshPluginList(); })
+            .catch(function (e) { showError("切换失败", e && e.message ? e.message : e); refreshPluginList(); });
+        });
+
+        var btnUn = panel.querySelector('button[data-action="uninstall"]');
+        if (btnUn) btnUn.addEventListener("click", function () {
+          window.LunchHelper.host.uninstallPlugin(detail.id)
             .then(function () { refreshPluginList(); })
             .catch(function (e) { showError("卸载失败", e && e.message ? e.message : e); });
         });
-        return row;
+
+        var btnFd = panel.querySelector('button[data-action="force-delete"]');
+        if (btnFd) btnFd.addEventListener("click", function () {
+          MD3Dialog.show({
+            title: "强制删除插件",
+            icon: "warning",
+            content: "确定立即删除「" + esc(detail.name || detail.id) + "」？若文件被占用，将自动改为重启后删除。",
+            buttons: [{ id: "ok", text: "强制删除", style: "primary" }, { id: "cancel", text: "取消" }]
+          }).then(function (bid) {
+            if (bid !== "ok") return;
+            window.LunchHelper.host.forceDeletePlugin(detail.id)
+              .then(function (res) {
+                var info = (typeof res === "string") ? JSON.parse(res) : res;
+                if (info && info.deferred) toast("文件被占用，将重启后删除。");
+                else toast("已强制删除，即将重启应用。");
+                setTimeout(function () { window.LunchHelper.host.restartApp(); }, 650);
+              })
+              .catch(function (e) { showError("强制删除失败", e && e.message ? e.message : e); });
+          });
+        });
+
+        var btnCu = panel.querySelector('button[data-action="cancel-uninstall"]');
+        if (btnCu) btnCu.addEventListener("click", function () {
+          window.LunchHelper.host.cancelUninstall(detail.id)
+            .then(function () { refreshPluginList(); })
+            .catch(function (e) { showError("撤销失败", e && e.message ? e.message : e); });
+        });
+
+        var btnCi = panel.querySelector('button[data-action="cancel-install"]');
+        if (btnCi) btnCi.addEventListener("click", function () {
+          window.LunchHelper.host.cancelInstall(detail.id)
+            .then(function () { refreshPluginList(); })
+            .catch(function (e) { showError("撤销失败", e && e.message ? e.message : e); });
+        });
+
+        var btnOf = panel.querySelector('button[data-action="open-folder"]');
+        if (btnOf) btnOf.addEventListener("click", function () {
+          window.LunchHelper.host.openPluginFolder(detail.id).catch(function (e) { showError("打开目录失败", e && e.message ? e.message : e); });
+        });
       }
 
       function refreshPluginList() {
         var list = document.getElementById("pluginList");
         if (!list) return;
+        var banner = document.getElementById("pluginPendingBanner");
         window.LunchHelper.host.listPlugins().then(function (plugins) {
-          list.innerHTML = "";
-          if (!plugins || !plugins.length) {
-            list.innerHTML = '<div class="muted">暂无已安装插件。</div>';
-            return;
+          plugins = plugins || [];
+          var seen = {};
+          plugins = plugins.filter(function (p) {
+            if (seen[p.id]) return false;
+            seen[p.id] = true;
+            return true;
+          });
+
+          var hasPending = plugins.some(function (p) {
+            return p.pendingUninstall || p.pendingInstall || p.effectiveEnabled !== p.enabled;
+          });
+
+          UIAnim.syncList(list, plugins, {
+            key: function (p) { return p.id; },
+            render: renderPluginItem,
+            update: updatePluginItem,
+            emptyHtml: '<div class="muted plugin-list-empty">暂无已安装插件。</div>'
+          });
+
+          if (banner) banner.classList.toggle("is-visible", !!hasPending);
+
+          if (selectedPluginId) {
+            var still = plugins.some(function (p) { return p.id === selectedPluginId; });
+            if (still) {
+              if (document.getElementById("pluginDetailPanel")) loadPluginDetail(selectedPluginId);
+            } else {
+              selectedPluginId = null;
+              var panel = document.getElementById("pluginDetailPanel");
+              if (panel) panel.innerHTML = '<div class="plugin-detail-empty">在左侧选择一个插件查看详情</div>';
+            }
           }
-          plugins.forEach(function (p) { list.appendChild(renderPluginRow(p)); });
         });
       }
 
@@ -426,7 +712,7 @@
                 '<div class="plg-name">' + esc(plgName) + '</div>' +
                 '<div class="plg-meta">' + esc(meta) + '</div>' +
                 '<div class="plg-deps">包含页面：' + esc(pageList) + '</div>' +
-                '<div class="muted" style="margin-top:.5rem">即将安装到插件目录，确定继续？</div>',
+                '<div class="muted" style="margin-top:.5rem">插件将在下次启动时安装生效，确定加入待安装？</div>',
               buttons: [
                 { id: "ok", text: "安装", style: "primary" },
                 { id: "cancel", text: "取消" }
@@ -434,7 +720,7 @@
             }).then(function (bid) {
               if (bid === "ok") {
                 window.LunchHelper.host.confirmInstall(info.pluginId)
-                  .then(function () { toast("安装成功。"); refreshPluginList(); })
+                  .then(function () { toast("已加入待安装，重启后生效。"); refreshPluginList(); })
                   .catch(function (e) { showError("安装失败", e && e.message ? e.message : e); refreshPluginList(); });
               } else {
                 window.LunchHelper.host.cancelInstall(info.pluginId).then(function () { refreshPluginList(); });

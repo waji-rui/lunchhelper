@@ -185,8 +185,10 @@ namespace LunchHelper
         /// HTML 头部保留 <c>&lt;style id="md3-tokens"&gt;/*CSS_TOKENS*/&lt;/style&gt;</c>、
         /// <c>&lt;style id="md3-components"&gt;/*CSS_COMPONENTS*/&lt;/style&gt;</c>、
         /// <c>&lt;style id="md3-dialog"&gt;/*CSS_DIALOG*/&lt;/style&gt;</c> 三个样式占位符，
-        /// 以及 <c>&lt;script&gt;/*JS_DIALOG*/&lt;/script&gt;</c>（弹窗组件）与
-        /// <c>&lt;script&gt;/*JS_HOST*/&lt;/script&gt;</c>（宿主桥接 API）两个脚本占位符；
+        /// 以及 <c>&lt;script&gt;/*JS_ANIM*/&lt;/script&gt;</c>（统一组件动画工具）、
+        /// <c>&lt;script&gt;/*JS_DIALOG*/&lt;/script&gt;</c>（弹窗组件）、
+        /// <c>&lt;script&gt;/*JS_HOST*/&lt;/script&gt;</c>（宿主桥接 API）与
+        /// <c>&lt;script&gt;/*JS_MARKDOWN*/&lt;/script&gt;</c>（Markdown 渲染器）四个脚本占位符；
         /// 样式与脚本已拆到 ui/（内嵌资源），便于锁屏复用与未来主题/插件系统覆盖
         /// （换肤只需替换令牌层，组件样式无需改动；插件仅需调用 window.LunchHelper.host.*）。
         /// </summary>
@@ -200,11 +202,15 @@ namespace LunchHelper
             string dlgCss = ReadEmbedded(asm, "ui.dialog.css") ?? "";
             string dlgJs = ReadEmbedded(asm, "ui.dialog.js") ?? "";
             string hostJs = ReadEmbedded(asm, "ui.host-bridge.js") ?? "";
+            string animJs = ReadEmbedded(asm, "ui.animations.js") ?? "";
+            string mdJs = ReadEmbedded(asm, "ui.markdown.js") ?? "";
             html = html.Replace("/*CSS_TOKENS*/", tokens)
                        .Replace("/*CSS_COMPONENTS*/", css)
                        .Replace("/*CSS_DIALOG*/", dlgCss)
                        .Replace("/*JS_DIALOG*/", dlgJs)
-                       .Replace("/*JS_HOST*/", hostJs);
+                       .Replace("/*JS_HOST*/", hostJs)
+                       .Replace("/*JS_ANIM*/", animJs)
+                       .Replace("/*JS_MARKDOWN*/", mdJs);
             return html;
         }
 
@@ -311,6 +317,13 @@ namespace LunchHelper
                 case "listPlugins":
                     SendHostResult(msg.Id, true, PluginHost.ToJson(PluginHost.ListPlugins()));
                     break;
+                case "getPluginDetails":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
+                        var detail = PluginHost.GetPluginDetails(pid);
+                        SendHostResult(msg.Id, detail != null, detail != null ? PluginHost.ToJson(detail) : "null", detail != null ? null : "未找到插件：" + pid);
+                        break;
+                    }
                 case "setPluginEnabled":
                     {
                         string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
@@ -408,9 +421,10 @@ namespace LunchHelper
                         }
                         string tmpZip = InstallSession[pid];
                         InstallSession.Remove(pid);
-                        string err = PluginHost.InstallFromZip(tmpZip, pid);
+                        // 延迟安装：仅把 zip 暂存到 .pending，重启时才真正解压生效（与卸载对称，可撤销）。
+                        string err = PluginHost.QueueInstall(tmpZip, pid);
                         try { if (File.Exists(tmpZip)) File.Delete(tmpZip); } catch { }
-                        if (err == null) RegisterPlugins(); // 安装成功后让侧边栏实时出现新插件
+                        // 注意：安装尚未真正解压，不在这里 RegisterPlugins（重启后由 ApplyPendingInstalls 完成）。
                         SendHostResult(msg.Id, err == null, err == null ? "null" : JsonString(err));
                         break;
                     }
@@ -423,7 +437,54 @@ namespace LunchHelper
                             InstallSession.Remove(pid);
                             try { if (File.Exists(tmpZip)) File.Delete(tmpZip); } catch { }
                         }
+                        // 同时删除已暂存的待安装包（若已确认过、关闭窗口后再撤销的情况）
+                        if (!string.IsNullOrWhiteSpace(pid)) PluginHost.CancelPendingInstall(pid);
                         SendHostResult(msg.Id, true, "null");
+                        break;
+                    }
+                case "cancelUninstall":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
+                        string errUn = PluginHost.CancelUninstall(pid);
+                        SendHostResult(msg.Id, errUn == null, errUn == null ? "{\"ok\":true}" : "null", errUn);
+                        break;
+                    }
+                case "forceDeletePlugin":
+                    {
+                        string pid = msg.Data != null ? (msg.Data.PluginId ?? "") : "";
+                        string res = PluginHost.ForceDelete(pid);
+                        bool okFd = res == null || res.StartsWith("DEFERRED:", StringComparison.Ordinal);
+                        // payload 带 deferred 标志，让前端知道是否已回退为延迟删除
+                        string payload = okFd ? "{\"ok\":true,\"deferred\":" + (res == null ? "false" : "true") + ",\"message\":" + (res == null ? "null" : JsonString(res.Substring(9))) + "}" : "null";
+                        SendHostResult(msg.Id, okFd, payload, okFd ? null : res);
+                        break;
+                    }
+                case "restartApp":
+                    {
+                        try
+                        {
+                            string exe = Application.ExecutablePath;
+                            var args = Environment.GetCommandLineArgs();
+                            // args[0] 是 exe 路径，后面才是真实参数；末尾附加 -restartwait <oldPid>，
+                            // 让新进程等旧进程释放单实例互斥体后再继续，避免重启后只触发单实例聚焦。
+                            var parts = new System.Collections.Generic.List<string>();
+                            for (int i = 1; i < args.Length; i++)
+                            {
+                                string a = args[i];
+                                parts.Add(a.Contains(" ") ? "\"" + a + "\"" : a);
+                            }
+                            parts.Add("-restartwait");
+                            parts.Add(Process.GetCurrentProcess().Id.ToString());
+                            string argStr = string.Join(" ", parts);
+                            Process.Start(new ProcessStartInfo { FileName = exe, Arguments = argStr, UseShellExecute = true });
+                            SendHostResult(msg.Id, true, "{\"ok\":true}");
+                            // 给前端留一小段时间处理回执，然后在 UI 线程退出
+                            Task.Delay(200).ContinueWith(_ => BeginInvoke((Action)(() => Application.Exit())));
+                        }
+                        catch (Exception ex)
+                        {
+                            SendHostResult(msg.Id, false, null, "重启失败：" + ex.Message);
+                        }
                         break;
                     }
                 default:

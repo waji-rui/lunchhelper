@@ -86,6 +86,8 @@
     <EmbeddedResource Include="src\ui\dialog.css" />
     <EmbeddedResource Include="src\ui\dialog.js" />
     <EmbeddedResource Include="src\ui\host-bridge.js" />
+    <EmbeddedResource Include="src\ui\animations.js" />
+    <EmbeddedResource Include="src\ui\markdown.js" />
   </ItemGroup>
 
   <!-- 示例插件（plugins/）：拷贝到输出目录，便于本地验证插件加载机制。
