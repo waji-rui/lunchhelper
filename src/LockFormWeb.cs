@@ -143,6 +143,7 @@ namespace LunchHelper
 
                 _web.CoreWebView2.WebMessageReceived += OnWebMessage;
                 _web.CoreWebView2.NavigateToString(LoadHtml());
+                try { _web.Focus(); } catch { }   // 确保物理键盘事件进入网页文档（无需先点一下）
             }
             catch (Exception ex)
             {

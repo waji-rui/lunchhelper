@@ -58,6 +58,7 @@
     btnAction.addEventListener("click", enterPassword);
     btnBack.addEventListener("click", exitPassword);
     btnConfirm.addEventListener("click", submit);
+    document.addEventListener("keydown", onPhysicalKey);   // 物理键盘：数字/回车/删除/退格（与触摸键盘同源）
 
     // 初始配置已在页面加载时由 C# 注入（window.__LOCK_CONFIG__），此处直接应用，
     // 不依赖宿主桥接回合；即使桥接不可用，标语/倒计时/动画开关也已正确显示。
@@ -120,6 +121,31 @@
     else if (k === "delete") { code = code.slice(0, -1); renderDots(); }
     else if (k >= "0" && k <= "9") {
       if (code.length < MAX_LEN) { code += k; renderDots(); clearErrorLocal(); }
+    }
+  }
+
+  // 物理键盘支持：数字键输入、回车提交、退格/删除删字符、Esc 返回（与触摸键盘同源，安全边界仍在 C#）。
+  // 仅在密码界面（show-password，由“应急解锁”按钮进入）生效；主界面一律忽略，不会自动跳入密码框。
+  function onPhysicalKey(e) {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;   // 放过系统组合键（Win/Alt/Ctrl 已由 AntiTamper 拦截）
+    if (!root.classList.contains("show-password")) return;   // 物理键盘只在已进入的密码界面内工作
+    var k = e.key;
+    if (k >= "0" && k <= "9") {
+      if (locked || busy) return;
+      e.preventDefault();
+      if (code.length < MAX_LEN) { code += k; renderDots(); clearErrorLocal(); }
+    } else if (k === "Enter") {
+      var ae = document.activeElement;
+      if (ae && ae.classList && ae.classList.contains("key")) return;   // 让被聚焦的键盘按钮自行处理，避免重复触发
+      e.preventDefault();
+      submit();
+    } else if (k === "Backspace" || k === "Delete") {
+      e.preventDefault();
+      if (locked || busy) return;
+      code = code.slice(0, -1); renderDots();
+    } else if (k === "Escape") {
+      e.preventDefault();
+      exitPassword();
     }
   }
 
