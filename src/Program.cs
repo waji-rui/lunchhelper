@@ -136,7 +136,13 @@ namespace LunchHelper
                     int guardianPid = LaunchGuardian();
                     try
                     {
-                        Application.Run(new LockForm(debug, guardianPid));
+                        // 优先用 WebView2 渲染的锁屏（与配置页同源美观）；运行时缺失或目录不可写时降级为原生锁屏。
+                        bool webOk = LockFormWeb.IsWebView2Available();
+                        Form lockForm = webOk
+                            ? (Form)new LockFormWeb(debug, guardianPid)
+                            : (Form)new LockForm(debug, guardianPid);
+                        if (!webOk) Logger.Warn("WebView2 不可用或目录不可写，降级为原生锁屏");
+                        Application.Run(lockForm);
                     }
                     finally
                     {

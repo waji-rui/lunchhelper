@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>设备已锁定 · LunchHelper</title>
+<!-- 设计令牌层（与配置页同源；md3-theme 由 C# 注入系统强调色覆盖） -->
+<style id="md3-tokens">/*CSS_TOKENS*/</style>
+<!-- 通用组件与布局（按钮/卡片等，复用配置页 .btn 等） -->
+<style id="md3-components">/*CSS_COMPONENTS*/</style>
+<!-- 锁屏专属布局 -->
+<style id="md3-lock">/*CSS_LOCK*/</style>
+<!-- MD3 暗色动态强调色（C# 注入完整 <style> 块，覆盖 tokens 默认值，确保与配置页同源） -->
+/*MD3_THEME*/
+<!-- 初始配置（标语/锁定秒数/动画开关）由 C# 直接注入，页面加载即可见，不依赖宿主桥接回合 -->
+<script>/*LOCK_CONFIG*/</script>
+</head>
+<body>
+<div class="lock-root" id="lockRoot">
+  <div class="lock-stage">
+
+    <!-- 主锁屏态：时间 + 日期 + 标语 + 倒计时 + 应急解锁 -->
+    <section class="screen screen-main" id="screenMain">
+      <div class="lock-time" id="lockTime">--:--:--</div>
+      <div class="lock-date" id="lockDate"></div>
+      <div class="lock-slogan" id="lockSlogan">设备已锁定</div>
+      <div class="lock-countdown" id="lockCountdown"></div>
+      <button class="btn btn-primary lock-action" id="btnAction" type="button">应急解锁</button>
+    </section>
+
+    <!-- 密码解锁态：提示 + 掩码显示 + 数字键盘 + 确认/返回 -->
+    <section class="screen screen-password" id="screenPassword">
+      <div class="lock-prompt" id="lockPrompt">请输入应急解锁密码</div>
+      <div class="lock-display" id="lockDisplay"><div class="dots" id="lockDots"></div></div>
+      <div class="keypad" id="keypad">
+        <button class="key num" data-k="1" type="button">1</button>
+        <button class="key num" data-k="2" type="button">2</button>
+        <button class="key num" data-k="3" type="button">3</button>
+        <button class="key num" data-k="4" type="button">4</button>
+        <button class="key num" data-k="5" type="button">5</button>
+        <button class="key num" data-k="6" type="button">6</button>
+        <button class="key num" data-k="7" type="button">7</button>
+        <button class="key num" data-k="8" type="button">8</button>
+        <button class="key num" data-k="9" type="button">9</button>
+        <button class="key act" data-k="clear" type="button">清空</button>
+        <button class="key num" data-k="0" type="button">0</button>
+        <button class="key act" data-k="delete" type="button">删除</button>
+      </div>
+      <button class="btn btn-primary lock-confirm" id="btnConfirm" type="button">确认解锁</button>
+      <button class="btn lock-action lock-back" id="btnBack" type="button">返回</button>
+    </section>
+
+  </div>
+</div>
+<script>/*JS_ANIM*/</script>
+<script>/*JS_LOCK*/</script>
+</body>
+</html>

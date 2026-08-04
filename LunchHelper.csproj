@@ -67,6 +67,8 @@
     <Compile Include="src\ConfigForm.cs" />
     <Compile Include="src\LockForm.cs" />
     <Compile Include="src\PluginHost.cs" />
+    <Compile Include="src\WebUiShell.cs" />
+    <Compile Include="src\LockFormWeb.cs" />
   </ItemGroup>
 
   <!-- 配置界面与可复用 UI 的离线资源（均为内嵌资源，运行时由 ConfigForm.LoadHtml 组合注入，
@@ -88,6 +90,10 @@
     <EmbeddedResource Include="src\ui\host-bridge.js" />
     <EmbeddedResource Include="src\ui\animations.js" />
     <EmbeddedResource Include="src\ui\markdown.js" />
+    <!-- 锁屏页（WebView2 渲染，复用公共令牌/组件样式）：骨架 + 锁屏专属 CSS/JS -->
+    <EmbeddedResource Include="src\LockPage.html" />
+    <EmbeddedResource Include="src\ui\lock.css" />
+    <EmbeddedResource Include="src\ui\lock.js" />
   </ItemGroup>
 
   <!-- 示例插件（plugins/）：拷贝到输出目录，便于本地验证插件加载机制。

@@ -487,9 +487,36 @@ namespace LunchHelper
                         }
                         break;
                     }
+                case "lockNow":
+                    {
+                        LockNowForTest();
+                        SendHostResult(msg.Id, true, "{\"ok\":true}");
+                        break;
+                    }
                 default:
                     SendHostResult(msg.Id, false, null, "未知宿主操作: " + (msg.Op ?? ""));
                     break;
+            }
+        }
+
+        /// <summary>
+        /// 配置页「立即锁屏」测试：启动锁屏窗体预览效果。
+        /// 不拉守护进程（guardianPid = -1）；优先 WebView2 版，不可用时降级原生 LockForm。
+        /// 非模态 Show：锁屏为 TopMost 全屏覆盖配置页，解锁后自行关闭返回配置页。
+        /// </summary>
+        private void LockNowForTest()
+        {
+            try
+            {
+                Form lockForm;
+                if (LockFormWeb.IsWebView2Available()) lockForm = new LockFormWeb(_debug, -1);
+                else lockForm = new LockForm(_debug, -1);
+                lockForm.Show();
+                Logger.Info("配置页触发立即锁屏（测试）");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("立即锁屏启动失败: " + ex.Message);
             }
         }
 

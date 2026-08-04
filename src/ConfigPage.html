@@ -84,6 +84,15 @@
           </label>
         </div>
       </div>
+
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm-3-9V6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9z"/></svg></div>
+        <div class="text">
+          <div class="t">立即锁屏</div>
+          <div class="s">配置完成后可直接锁屏预览效果（可用密码或倒计时解锁）</div>
+        </div>
+        <div class="ctl"><button class="btn primary" id="btnLockNow">立即锁屏</button></div>
+      </div>
     </section>
 
     <!-- 备份与恢复页 -->
@@ -306,6 +315,14 @@
         { id: "cancel", text: "取消" }
       ]
     }).then(function (id) { if (id === "ok") post({ cmd: "reset" }); });
+  });
+
+  // 立即锁屏：调用宿主启动锁屏窗体用于预览效果
+  var btnLockNow = $("btnLockNow");
+  if (btnLockNow) btnLockNow.addEventListener("click", function () {
+    window.LunchHelper.host.lockNow().catch(function (e) {
+      showError("锁屏启动失败", e && e.message ? e.message : e);
+    });
   });
 
   $("menuBtn").addEventListener("click", openSidebar);

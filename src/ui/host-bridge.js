@@ -75,6 +75,8 @@
       forceDeletePlugin: function (id) { return postAsync("forceDeletePlugin", { pluginId: id }); },
       // 立即重启应用程序（用相同参数启动新进程后退出当前进程）
       restartApp: function () { return postAsync("restartApp", null); },
+      // 立即锁屏（配置页测试按钮）：C# 启动锁屏窗体用于预览效果，不拉守护进程
+      lockNow: function () { return postAsync("lockNow", null); },
       // 打开插件根目录（资源管理器）
       openPluginsFolder: function () { return postAsync("openPluginsFolder", null); },
       // 打开指定插件目录

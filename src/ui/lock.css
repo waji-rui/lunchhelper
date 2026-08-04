@@ -1,0 +1,189 @@
+/* lock.css —— 锁屏专属布局（复用 tokens.css 的设计令牌与 components.css 的通用组件观感） */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.lock-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  padding: 2rem;
+}
+
+.lock-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 双态切换：用 opacity/transform 过渡，绝不用 display 硬切（跟随 no-anim 自动禁用动画） */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.75rem, 2.2vh, 1.5rem);
+  transition: opacity var(--dur-medium) var(--ease-standard),
+              transform var(--dur-medium) var(--ease-emphasized);
+}
+.screen-main { opacity: 1; transform: none; pointer-events: auto; }
+.screen-password { opacity: 0; transform: scale(0.98); pointer-events: none; }
+.lock-root.show-password .screen-main { opacity: 0; transform: scale(1.02); pointer-events: none; }
+.lock-root.show-password .screen-password { opacity: 1; transform: none; pointer-events: auto; }
+
+/* ---- 主锁屏 ---- */
+.lock-time {
+  font-size: clamp(3rem, 9vw, 6.5rem);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--on-surface);
+  font-variant-numeric: tabular-nums;
+}
+.lock-date {
+  font-size: var(--md-body-large);
+  color: var(--on-surface-variant);
+  margin-top: -0.4rem;
+}
+.lock-slogan {
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  font-weight: 500;
+  color: var(--on-surface);
+  text-align: center;
+  max-width: 90vw;
+  line-height: 1.25;
+}
+.lock-countdown {
+  font-size: var(--md-body-large);
+  color: var(--on-surface-variant);
+}
+
+/* ---- 按钮（与配置页 .btn.primary 同源观感） ---- */
+.btn {
+  font-family: inherit;
+  border: none;
+  cursor: pointer;
+  height: var(--tap);
+  min-height: var(--tap);
+  padding: 0 1.75rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--md-label-large);
+  font-weight: var(--md-label-large-weight);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur-short) var(--ease-standard),
+              transform var(--dur-short) var(--ease-standard),
+              box-shadow var(--dur-short) var(--ease-standard),
+              opacity var(--dur-short) var(--ease-standard);
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { background: color-mix(in srgb, var(--on-accent) 8%, var(--accent)); }
+.lock-action { margin-top: 0.5rem; }
+.lock-back {
+  background: transparent;
+  color: var(--on-surface-variant);
+  border: 1px solid var(--outline);
+  margin-top: 0.75rem;
+}
+.lock-back:hover { background: color-mix(in srgb, var(--on-surface-variant) 12%, transparent); }
+.lock-confirm {
+  background: var(--accent);
+  color: var(--on-accent);
+  margin-top: 0.9rem;
+  width: min(360px, 84vw);
+}
+.lock-confirm:hover { background: color-mix(in srgb, var(--on-accent) 8%, var(--accent)); }
+
+/* ---- 密码态：提示 + 掩码显示 ---- */
+.lock-prompt {
+  font-size: var(--md-title-medium);
+  color: var(--on-surface);
+  text-align: center;
+  min-height: 1.5em;
+  transition: color var(--dur-short) var(--ease-standard);
+}
+.lock-prompt.error { color: var(--error); }
+.lock-display {
+  background: var(--surface-container-highest);
+  border-radius: var(--radius-pill);
+  padding: 0.5rem 1.25rem;
+  min-width: min(280px, 70vw);
+  display: flex;
+  justify-content: center;
+  transition: background var(--dur-short) var(--ease-standard);
+}
+.lock-display.error { background: color-mix(in srgb, var(--error) 18%, var(--surface-container-highest)); }
+.dots { display: flex; gap: 0.6rem; align-items: center; height: var(--tap); }
+.dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: var(--shape-full);
+  background: var(--on-surface-variant);
+  opacity: 0.35;
+  transition: opacity var(--dur-short) var(--ease-standard),
+              background var(--dur-short) var(--ease-standard);
+}
+.dot.filled { opacity: 1; background: var(--on-surface); }
+.lock-display.error .dot.filled { background: var(--error); }
+
+/* ---- 数字键盘 ---- */
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(0.5rem, 1.5vw, 0.9rem);
+  width: min(360px, 84vw);
+  margin-top: 0.5rem;
+}
+.key {
+  height: var(--tap);
+  border: none;
+  border-radius: var(--shape-l);
+  font-family: inherit;
+  font-size: var(--md-title-large);
+  font-weight: var(--md-title-large-weight);
+  cursor: pointer;
+  transition: background var(--dur-short) var(--ease-standard),
+              transform var(--dur-short) var(--ease-standard),
+              opacity var(--dur-short) var(--ease-standard);
+}
+.key:active { transform: scale(0.96); }
+.key.num { background: var(--accent-container); color: var(--on-accent-container); } /* FilledTonal */
+.key.act {                                                                          /* Outlined：清空 / 删除 */
+  background: transparent;
+  color: var(--on-surface-variant);
+  border: 1px solid var(--outline);
+  font-size: var(--md-body-large);
+}
+.keypad.locked, .keypad.locked .key { pointer-events: none; opacity: 0.5; }
+
+/* ---- 输错抖动（跟随 no-anim 自动禁用） ---- */
+@keyframes lock-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-10px); }
+  30% { transform: translateX(9px); }
+  45% { transform: translateX(-7px); }
+  60% { transform: translateX(5px); }
+  75% { transform: translateX(-3px); }
+}
+.lock-display.shake { animation: lock-shake var(--dur-medium2) var(--ease-standard); }
