@@ -48,7 +48,7 @@ namespace LunchHelper
         private readonly bool _useBorderless; // 无边框（FormBorderStyle.None）
         private readonly bool _useNoTaskbar;  // 不在任务栏（ShowInTaskbar=false）
         private readonly bool _useFullscreen; // 全屏覆盖所有显示器（StartPosition=Manual + 并集 Bounds）
-        private readonly bool _useTopmost;    // 控制器创建成功后置顶（TopMost=true）
+        private readonly bool _useTopmost;    // 锁屏视觉置顶（用 HWND_TOP 周期前置，不使用会破坏 WebView2 的 WS_EX_TOPMOST）
         private int _guardianPid;
         private Config _cfg;
 
@@ -60,6 +60,8 @@ namespace LunchHelper
         private Timer _mainTimer;
         private Timer _lockoutTimer;
         private Timer _guardianTimer;
+        private Timer _topTimer;       // 以「非 WS_EX_TOPMOST」方式周期把锁屏窗体置于普通窗口最前，
+                                       // 既保证锁屏视觉置顶，又避免 WS_EX_TOPMOST 抬高 WebView2 控制器创建失败率
 
         private WebView2 _web;
         private bool _aborted;    // WebView2 已放弃：保留深色窗体由倒计时解锁，不降级原生锁屏
@@ -85,7 +87,7 @@ namespace LunchHelper
             //   -st-borderless  加回 无边框（FormBorderStyle.None）
             //   -st-notaskbar   加回 不在任务栏（ShowInTaskbar=false）
             //   -st-fullscreen  加回 全屏覆盖所有显示器
-            //   -st-topmost     加回 控制器创建成功后置顶（TopMost=true）
+            //   -st-topmost     加回 锁屏视觉置顶（HWND_TOP 周期前置，不使用 WS_EX_TOPMOST）
             // 不加 -nostyle 时即为完整锁屏（全部样式生效）。
             string[] args = Environment.GetCommandLineArgs();
             bool strip = false, addBl = false, addTb = false, addFs = false, addTm = false;
@@ -129,6 +131,14 @@ namespace LunchHelper
                 + ", 全屏=" + _useFullscreen
                 + ", 置顶=" + _useTopmost);
             InitializeComponent();
+            // 锁屏视觉置顶：用 HWND_TOP 周期把本窗体置于普通窗口最前（不带 WS_EX_TOPMOST），
+            // 避免 WinForms TopMost(WS_EX_TOPMOST) 在提权/Job/uiAccess 环境下显著抬高 WebView2 控制器创建失败率。
+            if (_useTopmost)
+            {
+                _topTimer = new Timer { Interval = 400 };
+                _topTimer.Tick += (s, e) => BringToFrontSafe();
+                _topTimer.Start();
+            }
         }
 
         /// <summary>探测本机能否用 WebView2 承载锁屏（运行时存在且 exe 目录可写）。</summary>
@@ -139,10 +149,10 @@ namespace LunchHelper
             this.BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F);   // surface 暗色底色，WebView2 就绪前即深色，无白闪
             this.ForeColor = Color.White;
             // 窗体样式由有效标志（_use*）决定，便于用 -nostyle + 各 -st-* 做二次隔离。
-            // 注：控制器创建期间 TopMost 始终为 false（见下方），置顶推迟到 OnWebViewInit/GiveUpGraceful
-            // 成功之后，故「置顶」不会在创建阶段干扰 WebView2。
+            // 窗体从不使用 WS_EX_TOPMOST（WinForms TopMost）：该样式在提权/Job/uiAccess 环境下会抬高
+            // WebView2 控制器创建失败率。锁屏「视觉置顶」改用 HWND_TOP 周期前置（见 BringToFrontSafe / _topTimer）。
             this.FormBorderStyle = _useBorderless ? FormBorderStyle.None : FormBorderStyle.Sizable;
-            this.TopMost = false;   // 创建阶段保持非置顶；成功后再按 _useTopmost 置位
+            this.TopMost = false;   // 始终不使用 WS_EX_TOPMOST（见上）；置顶由 _topTimer 以 HWND_TOP 实现
             this.ShowInTaskbar = !_useNoTaskbar;
             this.StartPosition = _useFullscreen ? FormStartPosition.Manual : FormStartPosition.CenterScreen;
             this.WindowState = FormWindowState.Normal;
@@ -247,7 +257,7 @@ namespace LunchHelper
             if (_aborted) return;   // 已在其它路径放弃，避免访问已释放的 CoreWebView2
             try
             {
-                if (_useTopmost) this.TopMost = true;   // 控制器已创建成功，此时再置顶不再影响初始化
+                if (_useTopmost) BringToFrontSafe();   // 控制器已创建成功：以非 WS_EX_TOPMOST 方式置前，避免破坏 WebView2
                 var settings = _web.CoreWebView2.Settings;
                 settings.AreDefaultContextMenusEnabled = false;   // 触控界面更干净
                 settings.AreDevToolsEnabled = _debug;
@@ -291,7 +301,7 @@ namespace LunchHelper
         {
             if (_aborted) return;
             _aborted = true;
-            try { if (_useTopmost) this.TopMost = true; } catch { }   // 即使 WebView2 不可用，深色锁屏窗体仍须置顶以起到锁屏作用
+            try { if (_useTopmost) BringToFrontSafe(); } catch { }   // 即使 WebView2 不可用，深色锁屏窗体仍以非 WS_EX_TOPMOST 方式置前
             Logger.Error("锁屏 WebView2 不可用，保留深色窗体（不降级原生），由倒计时自动解锁");
             try { _guardianTimer?.Stop(); } catch { }
             try { _lockoutTimer?.Stop(); } catch { }
@@ -359,7 +369,7 @@ namespace LunchHelper
                     try { _renderWatchdog?.Stop(); } catch { }
                     LogWebState("ready");
                     Logger.Debug("锁屏页 ready 回执，WebView2 已确认渲染");
-                    ForceWebPresent();           // 首轮兜底重绘：规避提权/全屏 TopMost 下合成层不刷新导致空白
+                    ForceWebPresent();           // 首轮兜底重绘：规避偶发合成层未刷新导致视觉空白
                     PushConfig();
                     // 二次兜底：稍后再触发一次，规避首轮过早、合成层尚未来得及刷新的极端情况
                     Task.Delay(400).ContinueWith(_ =>
@@ -484,9 +494,10 @@ namespace LunchHelper
                 bounds = Rectangle.Union(bounds, s.Bounds);
             this.Bounds = bounds;
             // 注意：WebView2 初始化推迟到 OnShown（窗体真正可见后）执行。
-            // 经验证 OnShown 时父 HWND 已有效（IsWindow=True）却仍 E_INVALIDARG——
-            // 真因为锁屏窗体曾是 TopMost（WS_EX_TOPMOST），TopMost 父窗口上创建 WebView2 控制器会失败。
-            // 故 TopMost 已改到控制器创建成功后再置位（见 OnWebViewInit / GiveUpGraceful）。
+            // 经验证 OnShown 时父 HWND 已有效（IsWindow=True）却仍偶发 E_INVALIDARG——
+            // 真因为提权自动化工具以 Job+uiAccess+高完整性 启动本进程，WebView2 控制器创建在该环境下
+            // 不稳定；而 WS_EX_TOPMOST 父窗口会显著抬高失败率。故本窗体从不使用 WS_EX_TOPMOST，
+            // 锁屏置顶改用 HWND_TOP 周期前置（见 BringToFrontSafe / _topTimer）。
         }
 
         /// <summary>
@@ -707,9 +718,32 @@ namespace LunchHelper
             return sb.ToString();
         }
 
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_SHOWWINDOW = 0x0040;
+        private static readonly IntPtr HWND_TOP = new IntPtr(0);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        /// <summary>以「非 WS_EX_TOPMOST」方式把本窗体置于普通窗口 z 序最前，且不抢占焦点（SWP_NOACTIVATE）。
+        /// 既能保证锁屏视觉置顶，又规避 WS_EX_TOPMOST 父窗口抬高 WebView2 控制器创建失败率的已知问题。</summary>
+        private void BringToFrontSafe()
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            try
+            {
+                SetWindowPos(this.Handle, HWND_TOP, 0, 0, 0, 0,
+                    SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            }
+            catch { }
+        }
+
         /// <summary>
-        /// 强制 WebView2 重新呈现：提权/全屏 TopMost 边框窗体下偶发「JS 已 ready、但合成层未刷新」导致视觉空白。
-        /// 通过重新置顶 + 强制布局重算 + 极小尺寸扰动（±1 像素后还原）触发 DWM 重新合成来兜底。
+        /// 强制 WebView2 重新呈现：偶发「JS 已 ready、但合成层未刷新」导致视觉空白。
+        /// 通过重新置前 + 强制布局重算 + 极小尺寸扰动（±1 像素后还原）触发 DWM 重新合成来兜底。
         /// </summary>
         private void ForceWebPresent()
         {
@@ -854,6 +888,7 @@ namespace LunchHelper
             try { _mainTimer?.Dispose(); } catch { }
             try { _lockoutTimer?.Dispose(); } catch { }
             try { _guardianTimer?.Dispose(); } catch { }
+            try { _topTimer?.Dispose(); } catch { }
             try { _renderWatchdog?.Dispose(); } catch { }
             // 释放 WebView2 以让浏览器子进程退出，并清理本次的临时 UDF 目录（被占用时忽略，下轮再清）
             try { _web?.Dispose(); } catch { }
