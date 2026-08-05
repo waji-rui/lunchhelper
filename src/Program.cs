@@ -15,9 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Threading;
 using System.Windows.Forms;
@@ -71,6 +73,45 @@ namespace LunchHelper
             // 必须在这些逻辑之前就绪，错误才能落到 release/logs。
             Logger.Init(ConfigManager.Load().LogRetentionDays, debug);
 
+            // -debug 专属：启动瞬间打印完整环境快照，便于一眼判断进程被放在哪个窗口站/桌面。
+            if (debug)
+            {
+                Logger.Debug("启动环境: 窗口站=" + NativeMethods.GetCurrentWindowStationName()
+                    + ", 桌面=" + NativeMethods.GetCurrentDesktopName()
+                    + ", 提权=" + NativeMethods.IsProcessElevated()
+                    + ", 交互式=" + NativeMethods.IsOnInteractiveDesktop()
+                    + ", 良性来源=" + IsBenignLauncher()
+                    + ", 参数=[" + string.Join(",", args) + "]");
+                Logger.Debug("父进程=" + GetParentProcessName());
+            }
+
+            // ① 不在交互式窗口站（WinSta0\Default）：被放进自有窗口站/桌面，用户不可见——
+            // WebView2 锁屏与调试控制台都会落在不可见桌面。经 Shell 以普通用户上下文在
+            // 交互式桌面重拉起自身（复刻已知可用的“普通权限”上下文，WebView2 正常渲染）。
+            if (!Contains(args, "-shellrelaunch") && !Contains(args, "-guardian")
+                && !NativeMethods.IsOnInteractiveDesktop())
+            {
+                Logger.Warn("当前不在交互式窗口站(窗口站=" + NativeMethods.GetCurrentWindowStationName()
+                    + ", 桌面=" + NativeMethods.GetCurrentDesktopName() + ")，转经 Shell 在 WinSta0\\Default 重拉起");
+                RelaunchViaShell(args);
+                return;
+            }
+
+            // ② 被“提权且非 Shell 拉起”的进程（如提权后的自动化工具）启动：
+            // 此时进程虽在 WinSta0\Default，却继承了父进程的提权上下文，WebView2 的浏览器进程
+            // 无法在该上下文正常合成渲染（界面空白，但窗口与键盘仍可用）。右键管理员/普通双击由
+            // explorer 拉起则正常。故改由 Shell(explorer) 以普通用户上下文在交互式桌面重拉起自身，
+            // 复刻“普通权限自动化工具拉起”这一已知可用的上下文，WebView2 即可正常渲染。
+            // （此路径会主动放弃 uiAccess 置顶/盖任务管理器，等价于已接受的“降级为普通锁屏”。）
+            if (!Contains(args, "-shellrelaunch") && !Contains(args, "-guardian")
+                && NativeMethods.IsProcessElevated() && !IsBenignLauncher())
+            {
+                Logger.Warn("检测到由非 Shell 的提权进程拉起(父=" + GetParentProcessName()
+                    + ")，转经 Shell 以普通用户上下文在交互式桌面重拉起，规避 WebView2 空白");
+                RelaunchViaShell(args);
+                return;
+            }
+
             // 按需自提权：仅当配置了「启用 UI Access」时才尝试。
             // uiAccess 生效 = 可信签名 +（受保护目录 OR 提权）。
             // 若当前既未提权、也不在受保护目录（如从 Downloads 双击），则自动以管理员
@@ -78,7 +119,7 @@ namespace LunchHelper
             // 则不再重复拉起，避免死循环。配置/调试模式不需要 uiAccess，不触发。
             // 用户取消 UAC：静默降级为普通锁屏（不弹窗、不退出）。
             bool enableUiAccess = ConfigManager.Load().EnableUiAccess;
-            if (enableUiAccess && NeedsUiAccess(lockMode, guardian) && !Contains(args, "-elevated") && !HasUiAccessPrivilege())
+            if (enableUiAccess && NeedsUiAccess(lockMode, guardian) && !Contains(args, "-elevated") && !Contains(args, "-shellrelaunch") && !HasUiAccessPrivilege())
             {
                 try
                 {
@@ -121,8 +162,10 @@ namespace LunchHelper
                     // 互斥体已存在：可能是另一存活实例，也可能是被异常结束（防撬锁重启）遗留的“废弃”互斥体。
                     if (AnotherInstanceAlive())
                     {
-                        FocusExisting();
-                        return;
+                        // 经 Shell 重拉起的子进程：父实例存活属正常（父进程已退出前已拉起本子进程），
+                        // 不拦截、不聚焦，继续运行锁屏。
+                        if (Contains(args, "-shellrelaunch")) { /* 放行 */ }
+                        else { FocusExisting(); return; }
                     }
                     // 无其它存活实例 -> 视为废弃互斥体，尝试接管其所有权后继续运行。
                     try { mutex.WaitOne(); }
@@ -132,6 +175,10 @@ namespace LunchHelper
                 if (lockMode)
                 {
                     Logger.Info("启动锁屏模式" + (debug ? "（调试）" : ""));
+                    Logger.Info("锁屏环境: 窗口站=" + NativeMethods.GetCurrentWindowStationName()
+                        + ", 桌面=" + NativeMethods.GetCurrentDesktopName()
+                        + ", 提权=" + NativeMethods.IsProcessElevated()
+                        + ", DWM=" + NativeMethods.IsDwmCompositionEnabled());
 
                     int guardianPid = LaunchGuardian();
                     try
@@ -179,6 +226,109 @@ namespace LunchHelper
                 if (string.Equals(a, target, StringComparison.OrdinalIgnoreCase))
                     return true;
             return false;
+        }
+
+        [DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        // ---- 父进程查询（判断是否由 Shell/自身等良性来源拉起） ----
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool Process32First(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool Process32Next(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+        private const uint TH32CS_SNAPPROCESS = 0x00000002;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct PROCESSENTRY32
+        {
+            public uint dwSize;
+            public uint cntUsage;
+            public int th32ProcessID;
+            public IntPtr th32DefaultHeapID;
+            public uint th32ModuleID;
+            public uint cntThreads;
+            public int th32ParentProcessID;
+            public int pcPriClassBase;
+            public uint dwFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szExeFile;
+        }
+
+        /// <summary>父进程 exe 名（不含扩展名），用于判断是否由 Shell/自身等良性来源拉起。</summary>
+        private static string GetParentProcessName()
+        {
+            try
+            {
+                int pid = Process.GetCurrentProcess().Id;
+                IntPtr snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                if (snap == (IntPtr)(-1)) return "(未知)";
+                var pe = new PROCESSENTRY32 { dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32>() };
+                int ppid = -1;
+                if (Process32First(snap, ref pe))
+                {
+                    do
+                    {
+                        if (pe.th32ProcessID == pid) { ppid = pe.th32ParentProcessID; break; }
+                    } while (Process32Next(snap, ref pe));
+                }
+                CloseHandle(snap);
+                if (ppid > 0)
+                {
+                    using (var p = Process.GetProcessById(ppid))
+                        return p.ProcessName;
+                }
+            }
+            catch (Exception ex) { return "(异常:" + ex.Message + ")"; }
+            return "(未知)";
+        }
+
+        /// <summary>
+        /// 是否由良性来源拉起：Shell(explorer) 或本程序自身（配置页“立即锁屏”、自提权重拉等）。
+        /// 这些来源下 WebView2 可正常渲染；反之（如提权自动化工具）需转 Shell 重拉起。
+        /// </summary>
+        private static bool IsBenignLauncher()
+        {
+            try
+            {
+                string parent = GetParentProcessName();
+                string self = Process.GetCurrentProcess().ProcessName;
+                return string.Equals(parent, "explorer", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(parent, self, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// 经 Shell(explorer) 以普通用户上下文在交互式桌面(WinSta0\Default)重拉起自身。
+        /// 复刻“普通权限自动化工具拉起”这一已知可用的上下文，使 WebView2 正常渲染。
+        /// 带 -shellrelaunch 标记避免重复重拉；同时抑制自提权以不弹 UAC。
+        /// </summary>
+        private static void RelaunchViaShell(string[] args)
+        {
+            string exe = Process.GetCurrentProcess().MainModule.FileName;
+            var list = new List<string>(args) { "-shellrelaunch" };
+            var psi = new ProcessStartInfo
+            {
+                FileName = exe,
+                Arguments = string.Join(" ", list),
+                UseShellExecute = true // 经 Shell 以当前用户标准上下文在交互式桌面拉起
+            };
+            try
+            {
+                Process.Start(psi);
+                Logger.Warn("已通过 Shell 重拉起（普通用户上下文，交互式桌面）");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("通过 Shell 重拉起失败: " + ex.Message + "，回退当前上下文");
+            }
         }
 
         /// <summary>解析并移除 `-restartwait <pid>` 参数（由 restartApp 用于避免单实例冲突）。</summary>

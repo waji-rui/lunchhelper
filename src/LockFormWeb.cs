@@ -23,6 +23,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -55,7 +56,10 @@ namespace LunchHelper
         private Timer _guardianTimer;
 
         private WebView2 _web;
-        private bool _failover;   // 已降级给原生 LockForm 接管，Close 时不再误清解锁标记
+        private bool _aborted;    // WebView2 已放弃：保留深色窗体由倒计时解锁，不降级原生锁屏
+
+        private Timer _renderWatchdog;   // 渲染看门狗：导航后未收到 ready 回执则放弃原生降级（覆盖提权下 WebView2 静默空白）
+        private bool _readyReceived;     // 锁屏页已通过宿主桥接回执 ready（说明 WebView2 真正跑起来了）
 
         // 防暴破锁定时长（秒）：错误密码后键盘冻结该时长，期间忽略提交。
         private const int LockoutSeconds = 5;
@@ -75,60 +79,101 @@ namespace LunchHelper
             this.BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F);   // surface 暗色底色，WebView2 就绪前即深色，无白闪
             this.ForeColor = Color.White;
             this.FormBorderStyle = FormBorderStyle.None;
-            this.TopMost = true;
+            // TopMost 必须推迟到 WebView2 控制器创建成功后再置位（见 OnWebViewInit / GiveUpGraceful）。
+            // 在 TopMost（WS_EX_TOPMOST）父窗口上创建 WebView2 控制器会触发
+            // CreateCoreWebView2ControllerAsync 返回 E_INVALIDARG（"值不在预期的范围内"），
+            // 导致锁屏 WebView2 永远初始化失败；配置页（非 TopMost）正常即印证此点。
+            this.TopMost = false;
             this.ShowInTaskbar = false;
             this.StartPosition = FormStartPosition.Manual;
             this.WindowState = FormWindowState.Normal;
-            this.Activated += (s, e) => { this.TopMost = true; };
+            // 不再于 Activated 里重复置 TopMost=true：激活事件可能在控制器创建前触发，
+            // 会提前把窗口变成 TopMost 而破坏初始化。
 
             _web = new WebView2
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F)
+                BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F),
+                // 与配置页一致：UserDataFolder 指向 LocalAppData（始终可写），不附加自定义浏览器参数。
+                CreationProperties = new CoreWebView2CreationProperties
+                {
+                    // 独立 UserDataFolder：必须与配置页(exe 目录)不同，否则同进程内两个 WebView2
+                    // 共用同一 UDF 会导致第二个初始化失败（官方文档确认：同 UDF 多实例需各自独立目录）。
+                    UserDataFolder = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "LunchHelper", "LockWebView2")
+                }
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
             Controls.Add(_web);
-
-            _ = InitializeWebView();
+            // 注意：InitializeWebView 推迟到 OnHandleCreated（窗体尺寸确定后）再调用，
+            // 避免「先以小尺寸初始化、后再放大到全屏」导致 WebView2 合成层不刷新而空白。
         }
 
         private async Task InitializeWebView()
         {
-            // 受保护目录（如 Program Files）普通用户无写权限时 WebView2 的 UserDataFolder 无法创建，
-            // 此时直接降级（Program.cs 已据 IsWebView2Available 预检，这里再兜底一次）。
+            Logger.Debug("InitializeWebView 开始");
             if (!WebUiShell.IsWebView2Available())
             {
-                Logger.Warn("WebView2 不可用，降级为原生锁屏");
-                FailOverToNative();
+                Logger.Warn("WebView2 不可用，放弃原生降级（保留深色窗体由倒计时解锁）");
+                GiveUpGraceful();
                 return;
             }
             try
             {
-                // 显式指定 UserDataFolder 到 LocalAppData（始终可写），避免 exe 目录不可写导致初始化失败（黑屏根因）。
                 string udf = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "LunchHelper", "WebView2");
-                var env = await CoreWebView2Environment.CreateAsync(null, udf);
-                await _web.EnsureCoreWebView2Async(env);
+                    "LunchHelper", "LockWebView2");
+                Logger.Info("WebView2 UserDataFolder: " + udf);
+                // 诊断：与可用的配置页保持一致，使用默认环境（不附加 --no-sandbox/--disable-gpu 等自定义参数），
+                // 以判定「提权/非 Shell 启动」下的空白是否由自定义浏览器参数导致；UserDataFolder 已由
+                // CreationProperties 指定到 LocalAppData（始终可写）。
+                Logger.Debug("锁屏 WebView2 使用默认环境（与配置页一致），不附加自定义浏览器参数");
+                LogWebState("初始化前");
+
+                // 渲染看门狗：无论 EnsureCoreWebView2Async 卡死还是页面静默空白（ready 永不送达），
+                // 超时即优雅放弃（保留深色窗体，不降级原生锁屏），杜绝永久黑屏。
+                _renderWatchdog = new Timer { Interval = 10000 };
+                _renderWatchdog.Tick += OnRenderWatchdog;
+                _renderWatchdog.Start();
+
+                await _web.EnsureCoreWebView2Async(null);
+                Logger.Info("WebView2 环境创建成功，浏览器版本: " + (_web.CoreWebView2?.Environment?.BrowserVersionString ?? "?"));
             }
             catch (Exception ex)
             {
-                Logger.Error("WebView2 初始化失败，降级为原生锁屏: " + ex.Message);
-                FailOverToNative();
+                Logger.Error("WebView2 初始化失败，放弃原生降级: " + DescribeException(ex));
+                Logger.Debug("WebView2 初始化异常堆栈:\n" + ex.StackTrace);
+                GiveUpGraceful();
             }
+        }
+
+        /// <summary>
+        /// 渲染看门狗：若锁屏页在限定时间内未通过宿主桥接回执 ready（说明 WebView2 未真正渲染，
+        /// 常见于提权/非交互桌面下 GPU 进程失败致空白），则优雅放弃——保留深色窗体、不降级原生锁屏。
+        /// </summary>
+        private void OnRenderWatchdog(object sender, EventArgs e)
+        {
+            try { _renderWatchdog?.Stop(); } catch { }
+            if (_readyReceived || _aborted || IsDisposed) return;
+            Logger.Error("锁屏页未在限定时间内就绪（WebView2 可能未渲染），保留深色窗体（不降级原生）");
+            GiveUpGraceful();
         }
 
         private void OnWebViewInit(object sender, CoreWebView2InitializationCompletedEventArgs e)
         {
             if (!e.IsSuccess)
             {
-                Logger.Error("WebView2 初始化失败: " + (e.InitializationException?.Message ?? "未知错误"));
-                FailOverToNative();
+                Logger.Error("WebView2 初始化失败: " + DescribeException(e.InitializationException));
+                if (e.InitializationException != null)
+                    Logger.Debug("WebView2 初始化异常堆栈:\n" + e.InitializationException.StackTrace);
+                GiveUpGraceful();
                 return;
             }
-            if (_failover) return;   // 已在其它路径降级，避免访问已释放的 CoreWebView2
+            if (_aborted) return;   // 已在其它路径放弃，避免访问已释放的 CoreWebView2
             try
             {
+                this.TopMost = true;   // 控制器已创建成功，此时再置顶不再影响初始化
                 var settings = _web.CoreWebView2.Settings;
                 settings.AreDefaultContextMenusEnabled = false;   // 触控界面更干净
                 settings.AreDevToolsEnabled = _debug;
@@ -142,41 +187,42 @@ namespace LunchHelper
                 // 导致黑屏或宿主桥接消息通道异常。去掉它反而更稳妥。
 
                 _web.CoreWebView2.WebMessageReceived += OnWebMessage;
+                _web.CoreWebView2.ProcessFailed += (s, pf) =>
+                {
+                    Logger.Error("WebView2 进程异常: " + pf.ProcessFailedKind);
+                    GiveUpGraceful();
+                };
+                _web.CoreWebView2.NavigationCompleted += (s, nc) =>
+                {
+                    Logger.Debug("锁屏页导航完成: IsSuccess=" + nc.IsSuccess
+                        + (nc.IsSuccess ? "" : ", WebErrorStatus=" + nc.WebErrorStatus));
+                };
                 _web.CoreWebView2.NavigateToString(LoadHtml());
+                LogWebState("OnWebViewInit-导航前");
+                Logger.Debug("锁屏页 NavigateToString 已提交，等待 ready 回执");
                 try { _web.Focus(); } catch { }   // 确保物理键盘事件进入网页文档（无需先点一下）
             }
             catch (Exception ex)
             {
-                Logger.Error("WebView2 加载锁屏页失败，降级为原生锁屏: " + ex.Message);
-                FailOverToNative();
+                Logger.Error("WebView2 加载锁屏页失败，放弃原生降级: " + ex.Message);
+                GiveUpGraceful();
             }
         }
 
         /// <summary>
-        /// WebView2 不可用时的安全降级：停掉本窗体的安全逻辑，转交原生 LockForm 接管并显示，自身关闭。
-        /// 保证任何 WebView2 失败路径都不会留下黑屏——用户始终能看到可操作的锁屏（安全不降级）。
+        /// WebView2 渲染不可用时的优雅放弃：保留深色窗体（不降级原生锁屏，原生 WinForm 视觉不符需求），
+        /// 由主倒计时自动解锁。保留 AntiTamper 继续拦截系统组合键；仅停掉守护/防暴破/看门狗计时器。
         /// </summary>
-        private void FailOverToNative()
+        private void GiveUpGraceful()
         {
-            if (_failover) return;
-            _failover = true;
-            Logger.Warn("锁屏降级为原生 LockForm（WebView2 不可用）");
-            try { _mainTimer?.Stop(); } catch { }
+            if (_aborted) return;
+            _aborted = true;
+            try { this.TopMost = true; } catch { }   // 即使 WebView2 不可用，深色锁屏窗体仍须置顶以起到锁屏作用
+            Logger.Error("锁屏 WebView2 不可用，保留深色窗体（不降级原生），由倒计时自动解锁");
             try { _guardianTimer?.Stop(); } catch { }
             try { _lockoutTimer?.Stop(); } catch { }
-            try { AntiTamper.Cleanup(); } catch { }
-            try { _web?.Dispose(); } catch { }
-            try
-            {
-                this.Hide();                                  // 立即隐藏黑屏窗体，避免闪现
-                var native = new LockForm(_debug, _guardianPid);
-                native.Show();                                // 原生锁屏 OnLoad 会 Clear 解锁标记 + 启定时器 + 启 AntiTamper
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("降级原生锁屏失败: " + ex.Message);
-            }
-            try { this.Close(); } catch { }
+            try { _renderWatchdog?.Stop(); } catch { }
+            // 注意：不清理 AntiTamper（保持键盘拦截），不关闭窗体（保留深色界面），主倒计时仍驱动自动解锁。
         }
 
         /// <summary>组合锁屏离线 HTML：注入公共 CSS / 动画 / 桥接 / 锁屏逻辑 + C# 动态强调色 + 初始配置。</summary>
@@ -235,7 +281,17 @@ namespace LunchHelper
             switch (msg.Op)
             {
                 case "ready":
+                    _readyReceived = true;
+                    try { _renderWatchdog?.Stop(); } catch { }
+                    LogWebState("ready");
+                    Logger.Debug("锁屏页 ready 回执，WebView2 已确认渲染");
+                    ForceWebPresent();           // 首轮兜底重绘：规避提权/全屏 TopMost 下合成层不刷新导致空白
                     PushConfig();
+                    // 二次兜底：稍后再触发一次，规避首轮过早、合成层尚未来得及刷新的极端情况
+                    Task.Delay(400).ContinueWith(_ =>
+                    {
+                        try { this.BeginInvoke(new Action(ForceWebPresent)); } catch { }
+                    });
                     break;
                 case "submitCode":
                     HandleSubmit(msg.Data != null ? (msg.Data.Code ?? "") : "", msg.Id);
@@ -342,20 +398,138 @@ namespace LunchHelper
         private void PushError(string msg) => ExecScript("window.__showError(" + WebUiShell.JsonString(msg) + ");");
         private void PushClearError() => ExecScript("window.__clearError();");
 
-        protected override void OnLoad(EventArgs e)
+        /// <summary>窗体句柄创建后确定全屏覆盖尺寸（仅尺寸，不初始化 WebView2）。
+        /// WebView2 初始化放在 OnShown（窗体可见后）执行，详见该方法注释。</summary>
+        protected override void OnHandleCreated(EventArgs e)
         {
-            base.OnLoad(e);
-
+            base.OnHandleCreated(e);
             // 覆盖所有显示器
             Rectangle bounds = Screen.PrimaryScreen.Bounds;
             foreach (var s in Screen.AllScreens)
                 bounds = Rectangle.Union(bounds, s.Bounds);
             this.Bounds = bounds;
+            // 注意：WebView2 初始化推迟到 OnShown（窗体真正可见后）执行。
+            // 经验证 OnShown 时父 HWND 已有效（IsWindow=True）却仍 E_INVALIDARG——
+            // 真因为锁屏窗体曾是 TopMost（WS_EX_TOPMOST），TopMost 父窗口上创建 WebView2 控制器会失败。
+            // 故 TopMost 已改到控制器创建成功后再置位（见 OnWebViewInit / GiveUpGraceful）。
+        }
+
+        /// <summary>
+        /// 窗体首次显示后初始化 WebView2。此时窗体已可见、父 HWND 已稳定有效，
+        /// 规避 OnHandleCreated 阶段父窗口未实现导致 CreateCoreWebView2ControllerAsync 抛 E_INVALIDARG。
+        /// </summary>
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            try { _web.CreateControl(); } catch { }
+            Logger.Debug("[WebView2诊断] OnShown: _web.IsHandleCreated=" + _web.IsHandleCreated
+                + ", Handle=0x" + _web.Handle.ToString("X8")
+                + ", IsWindow=" + IsWindow(_web.Handle)
+                + ", 窗体Visible=" + this.Visible + ", 窗体IsHandleCreated=" + this.IsHandleCreated);
+            _ = InitializeWebView();
+            // 样式快照用 Info 级：即便 -lock 模式 debug=False 也能看到，用于确认 WebView2 初始化失败时
+            // 父窗口是否仍带 WS_EX_TOPMOST / WS_EX_LAYERED 等会破坏控制器创建的扩展样式。
+            try
+            {
+                int ex = GetWindowLong(this.Handle, GWL_EXSTYLE);
+                Logger.Info("[WebView2诊断] OnShown 窗体样式: TopMost(prop)=" + this.TopMost
+                    + ", WS_EX_TOPMOST=" + ((ex & WS_EX_TOPMOST) != 0)
+                    + ", WS_EX_LAYERED=" + ((ex & WS_EX_LAYERED) != 0)
+                    + ", EXSTYLE=0x" + ex.ToString("X8"));
+            }
+            catch (Exception ex) { Logger.Info("窗体样式快照异常: " + ex.Message); }
+        }
+
+        /// <summary>只读诊断：记录 WebView2 控件与窗体的尺寸/可见性/屏幕信息，用于定位「提权启动下空白」。</summary>
+        private void LogWebState(string tag)
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                sb.Append("[WebView2状态 ").Append(tag).Append("] ");
+                sb.Append("Visible=").Append(_web.Visible);
+                sb.Append(",Size=").Append(_web.Size.Width).Append("x").Append(_web.Size.Height);
+                sb.Append(",ClientSize=").Append(_web.ClientSize.Width).Append("x").Append(_web.ClientSize.Height);
+                sb.Append(",IsHandleCreated=").Append(_web.IsHandleCreated);
+                sb.Append(",Bounds=").Append(this.Bounds.X).Append(",").Append(this.Bounds.Y)
+                  .Append(" ").Append(this.Bounds.Width).Append("x").Append(this.Bounds.Height);
+                sb.Append(",Screens=").Append(Screen.AllScreens.Length).Append("[");
+                foreach (var s in Screen.AllScreens)
+                    sb.Append(s.Bounds.Width).Append("x").Append(s.Bounds.Height).Append(";");
+                sb.Append("]");
+                Logger.Debug(sb.ToString());
+            }
+            catch (Exception ex) { Logger.Debug("LogWebState 异常: " + ex.Message); }
+        }
+
+        /// <summary>判断给定 HWND 是否为系统有效窗口（WebView2 控制器创建前用来验证父窗口有效性）。</summary>
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+        private const int GWL_EXSTYLE = -20;
+        private const int WS_EX_TOPMOST = 0x00000008;
+        private const int WS_EX_LAYERED = 0x00080000;
+
+        /// <summary>把异常展开为可读诊断串：类型 + 消息 + HRESULT（COM 异常）+ 内部异常链。</summary>
+        private static string DescribeException(Exception ex)
+        {
+            if (ex == null) return "无异常";
+            var sb = new StringBuilder();
+            sb.Append(ex.GetType().FullName).Append(": ").Append(ex.Message);
+            if (ex is System.Runtime.InteropServices.COMException com)
+                sb.Append(" (HRESULT=0x").Append(com.ErrorCode.ToString("X8")).Append(")");
+            if (ex.InnerException != null)
+                sb.Append(" | 内部异常: ").Append(ex.InnerException.GetType().FullName)
+                  .Append(": ").Append(ex.InnerException.Message);
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 强制 WebView2 重新呈现：提权/全屏 TopMost 边框窗体下偶发「JS 已 ready、但合成层未刷新」导致视觉空白。
+        /// 通过重新置顶 + 强制布局重算 + 极小尺寸扰动（±1 像素后还原）触发 DWM 重新合成来兜底。
+        /// </summary>
+        private void ForceWebPresent()
+        {
+            if (_web == null || _web.IsDisposed || this.IsDisposed || !this.IsHandleCreated) return;
+            Logger.Debug("ForceWebPresent: 触发重新置顶与重绘兜底");
+            try { this.BringToFront(); } catch { }
+            try { this.Activate(); } catch { }
+            try
+            {
+                _web.PerformLayout();
+                _web.Invalidate();
+                _web.Update();
+                // 极小尺寸扰动：先 +1 再 -1，强制 WebView2 控制器重算 bounds 并重新合成
+                var oldDock = _web.Dock;
+                _web.Dock = DockStyle.None;
+                _web.SetBounds(_web.Left, _web.Top, _web.Width + 1, _web.Height + 1);
+                _web.SetBounds(_web.Left, _web.Top, _web.Width - 1, _web.Height - 1);
+                _web.Dock = oldDock;
+                _web.PerformLayout();
+                _web.Invalidate();
+                _web.Update();
+                try { _web.Focus(); } catch { }   // 重新置顶后把键盘焦点交还网页文档，保证物理应急密码可用
+                LogWebState("ForceWebPresent后");
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug("ForceWebPresent 内部异常: " + ex.Message);
+            }
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
 
             _cfg = ConfigManager.Load();
             _remaining = _cfg.LockSeconds;
             LockSignal.Clear();
             AntiTamper.Enable();
+            Logger.Debug("锁屏窗体 OnLoad；窗口站=" + NativeMethods.GetCurrentWindowStationName()
+                + ", 桌面=" + NativeMethods.GetCurrentDesktopName() + ", 交互式=" + NativeMethods.IsOnInteractiveDesktop());
 
             _mainTimer = new Timer { Interval = 1000 };
             _mainTimer.Tick += OnMainTick;
@@ -448,8 +622,7 @@ namespace LunchHelper
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             base.OnFormClosing(e);
-            // 降级给原生 LockForm 接管时，解锁标记与 AntiTamper 由原生锁屏负责，本窗体不可改写/清理。
-            if (_failover) return;
+            // 不再有原生 LockForm 接管：无论正常解锁还是优雅放弃后倒计时关闭，解锁标记与 AntiTamper 均由本窗体负责。
             LockSignal.SetUnlocked();
             AntiTamper.Cleanup();
         }
@@ -461,6 +634,7 @@ namespace LunchHelper
             try { _mainTimer?.Dispose(); } catch { }
             try { _lockoutTimer?.Dispose(); } catch { }
             try { _guardianTimer?.Dispose(); } catch { }
+            try { _renderWatchdog?.Dispose(); } catch { }
         }
     }
 }

@@ -15,8 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace LunchHelper
 {
@@ -126,6 +128,124 @@ namespace LunchHelper
                 return SystemParametersInfo(SPI_GETCLIENTAREAANIMATION, 0, out bool enabled, 0) && enabled;
             }
             catch { return true; }
+        }
+
+        // ---- 进程提权检测（用于 WebView2 在提权进程下 GPU 沙箱易失败导致空白的规避） ----
+        private const uint TOKEN_QUERY = 0x0008;
+        private const int TokenElevation = 20;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct TOKEN_ELEVATION
+        {
+            public int TokenIsElevated;
+        }
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetTokenInformation(IntPtr tokenHandle, int tokenInformationClass, ref TOKEN_ELEVATION tokenInformation, int tokenInformationLength, out int returnLength);
+
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        /// <summary>
+        /// 判断当前进程是否以管理员/提权方式运行（高完整性级别）。
+        /// </summary>
+        public static bool IsProcessElevated()
+        {
+            try
+            {
+                using (var proc = Process.GetCurrentProcess())
+                {
+                    if (!OpenProcessToken(proc.Handle, TOKEN_QUERY, out IntPtr token))
+                        return false;
+                    try
+                    {
+                        var elev = new TOKEN_ELEVATION();
+                        int retLen;
+                        if (GetTokenInformation(token, TokenElevation, ref elev, Marshal.SizeOf(elev), out retLen))
+                            return elev.TokenIsElevated != 0;
+                        return false;
+                    }
+                    finally { CloseHandle(token); }
+                }
+            }
+            catch { return false; }
+        }
+
+        // ---- 交互式桌面检测（WebView2 在非交互式窗口站/桌面下内容无法经 DWM 合成，导致页面空白） ----
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetThreadDesktop(int dwThreadId);
+
+        [DllImport("kernel32.dll")]
+        private static extern int GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetProcessWindowStation();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex, StringBuilder pvInfo, int nLength, out int lpnLengthNeeded);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmIsCompositionEnabled(out bool pfEnabled);
+
+        private const int UOI_NAME = 2;
+
+        /// <summary>当前线程所在桌面名称（交互式为 "Default"）。</summary>
+        public static string GetCurrentDesktopName()
+        {
+            try
+            {
+                IntPtr hDesk = GetThreadDesktop(GetCurrentThreadId());
+                if (hDesk == IntPtr.Zero) return "(未知)";
+                var sb = new StringBuilder(256);
+                if (GetUserObjectInformation(hDesk, UOI_NAME, sb, sb.Capacity, out _))
+                    return sb.ToString();
+                return "(读取失败)";
+            }
+            catch (Exception ex) { return "(异常:" + ex.Message + ")"; }
+        }
+
+        /// <summary>当前进程所在窗口站名称（交互式为 "WinSta0"）。</summary>
+        public static string GetCurrentWindowStationName()
+        {
+            try
+            {
+                IntPtr hWinsta = GetProcessWindowStation();
+                if (hWinsta == IntPtr.Zero) return "(未知)";
+                var sb = new StringBuilder(256);
+                if (GetUserObjectInformation(hWinsta, UOI_NAME, sb, sb.Capacity, out _))
+                    return sb.ToString();
+                return "(读取失败)";
+            }
+            catch (Exception ex) { return "(异常:" + ex.Message + ")"; }
+        }
+
+        /// <summary>
+        /// 是否运行在用户可见的交互式桌面（WinSta0\Default）。
+        /// 仅凭桌面名 "Default" 不够：提权/自动化程序可能把进程放进自有窗口站（其桌面也叫 "Default"），
+        /// 此时 WebView2 内容与调试控制台都落在不可见窗口站。必须以窗口站名 "WinSta0" 判定交互式。
+        /// </summary>
+        public static bool IsOnInteractiveDesktop()
+        {
+            try
+            {
+                return string.Equals(GetCurrentWindowStationName(), "WinSta0", StringComparison.OrdinalIgnoreCase)
+                    && GetCurrentDesktopName() == "Default";
+            }
+            catch { return false; }
+        }
+
+        /// <summary>DWM 桌面合成是否启用（WebView2 内容须经 DWM 呈现）。注意：非交互窗口站下该 API 仍可能返回 true。</summary>
+        public static bool IsDwmCompositionEnabled()
+        {
+            try { return DwmIsCompositionEnabled(out bool ok) == 0 && ok; }
+            catch { return false; }
         }
     }
 }
