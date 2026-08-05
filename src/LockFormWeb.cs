@@ -68,6 +68,8 @@ namespace LunchHelper
 
         private Timer _renderWatchdog;   // 渲染看门狗：导航后未收到 ready 回执则放弃原生降级（覆盖提权下 WebView2 静默空白）
         private bool _readyReceived;     // 锁屏页已通过宿主桥接回执 ready（说明 WebView2 真正跑起来了）
+        private int _initAttempts;        // WebView2 初始化重试计数（提权/Job 环境下控制器创建偶发失败，重试可自愈）
+        private const int MaxInitAttempts = 3;
 
         // 每次启动使用独立的、带 GUID 的 UserDataFolder（见构造函数）：锁屏为 kiosk 形态无需持久化
         // profile/cookie；核心目的是规避「上一次运行的 WebView2 浏览器子进程残留并锁住同一 UDF」
@@ -199,7 +201,10 @@ namespace LunchHelper
 
         private async Task InitializeWebView()
         {
-            Logger.Debug("InitializeWebView 开始");
+            if (_aborted) return;
+            if (_initAttempts >= MaxInitAttempts) { GiveUpGraceful(); return; }
+            _initAttempts++;
+            Logger.Debug("InitializeWebView 开始（第 " + _initAttempts + " 次尝试）");
             if (!WebUiShell.IsWebView2Available())
             {
                 Logger.Warn("WebView2 不可用，放弃原生降级（保留深色窗体由倒计时解锁）");
@@ -216,18 +221,44 @@ namespace LunchHelper
                 LogWebState("初始化前");
 
                 // 渲染看门狗：无论 EnsureCoreWebView2Async 卡死还是页面静默空白（ready 永不送达），
-                // 超时即优雅放弃（保留深色窗体，不降级原生锁屏），杜绝永久黑屏。
-                _renderWatchdog = new Timer { Interval = 10000 };
-                _renderWatchdog.Tick += OnRenderWatchdog;
-                _renderWatchdog.Start();
+                // 超时即优雅放弃（保留深色窗体，不降级原生锁屏），杜绝永久黑屏。仅创建一次，避免重试时叠加。
+                if (_renderWatchdog == null)
+                {
+                    _renderWatchdog = new Timer { Interval = 10000 };
+                    _renderWatchdog.Tick += OnRenderWatchdog;
+                    _renderWatchdog.Start();
+                }
 
                 await _web.EnsureCoreWebView2Async(null);
                 Logger.Info("WebView2 环境创建成功，浏览器版本: " + (_web.CoreWebView2?.Environment?.BrowserVersionString ?? "?"));
             }
             catch (Exception ex)
             {
-                Logger.Error("WebView2 初始化失败，放弃原生降级: " + DescribeException(ex));
+                Logger.Error("WebView2 初始化失败（第 " + _initAttempts + " 次）: " + DescribeException(ex));
                 Logger.Debug("WebView2 初始化异常堆栈:\n" + ex.StackTrace);
+                ScheduleWebViewRetry();
+            }
+        }
+
+        /// <summary>WebView2 初始化失败后的重试/放弃裁决：未达上限则短延时后重试（提权/Job 环境下偶发失败可自愈），
+        /// 达到上限则优雅放弃（保留深色窗体由倒计时解锁）。重试经由 BeginInvoke 封送回 UI 线程，
+        /// 避免跨线程调用 WebView2 控件方法。</summary>
+        private void ScheduleWebViewRetry()
+        {
+            if (_aborted) return;
+            if (_initAttempts < MaxInitAttempts)
+            {
+                Logger.Warn("WebView2 初始化重试中（" + _initAttempts + "/" + MaxInitAttempts + "）");
+                Task.Delay(400).ContinueWith(_ =>
+                {
+                    if (_aborted || IsDisposed || !IsHandleCreated) return;
+                    try { this.BeginInvoke(new Action(() => { _ = InitializeWebView(); })); }
+                    catch { }
+                });
+            }
+            else
+            {
+                Logger.Error("WebView2 初始化重试 " + MaxInitAttempts + " 次仍失败，放弃原生降级");
                 GiveUpGraceful();
             }
         }
@@ -248,10 +279,10 @@ namespace LunchHelper
         {
             if (!e.IsSuccess)
             {
-                Logger.Error("WebView2 初始化失败: " + DescribeException(e.InitializationException));
+                Logger.Error("WebView2 初始化失败（第 " + _initAttempts + " 次）: " + DescribeException(e.InitializationException));
                 if (e.InitializationException != null)
                     Logger.Debug("WebView2 初始化异常堆栈:\n" + e.InitializationException.StackTrace);
-                GiveUpGraceful();
+                ScheduleWebViewRetry();
                 return;
             }
             if (_aborted) return;   // 已在其它路径放弃，避免访问已释放的 CoreWebView2
