@@ -43,6 +43,7 @@ namespace LunchHelper
     internal class LockFormWeb : Form
     {
         private readonly bool _debug;
+        private readonly bool _stripStyle;   // 调试开关 -nostyle：移除全部锁屏专属窗口样式，退化成普通窗口以隔离提权下失败是否由样式导致
         private int _guardianPid;
         private Config _cfg;
 
@@ -61,6 +62,11 @@ namespace LunchHelper
         private Timer _renderWatchdog;   // 渲染看门狗：导航后未收到 ready 回执则放弃原生降级（覆盖提权下 WebView2 静默空白）
         private bool _readyReceived;     // 锁屏页已通过宿主桥接回执 ready（说明 WebView2 真正跑起来了）
 
+        // 每次启动使用独立的、带 GUID 的 UserDataFolder（见构造函数）：锁屏为 kiosk 形态无需持久化
+        // profile/cookie；核心目的是规避「上一次运行的 WebView2 浏览器子进程残留并锁住同一 UDF」
+        // 导致后续启动 CreateCoreWebView2ControllerAsync 抛 E_INVALIDARG（首次成功、之后全败的死相）。
+        private string _udf;
+
         // 防暴破锁定时长（秒）：错误密码后键盘冻结该时长，期间忽略提交。
         private const int LockoutSeconds = 5;
 
@@ -68,6 +74,20 @@ namespace LunchHelper
         {
             _debug = debug;
             _guardianPid = guardianPid;
+            // 调试开关 -nostyle：移除全部锁屏专属窗口样式，使本窗体退化为普通 Sizable 窗口，
+            // 用于隔离「提权自动化工具下失败」是否由窗体样式（无边框/置顶/全屏）导致。
+            string[] args = Environment.GetCommandLineArgs();
+            bool strip = false;
+            foreach (var a in args)
+                if (string.Equals(a, "-nostyle", StringComparison.OrdinalIgnoreCase)) { strip = true; break; }
+            _stripStyle = strip;
+            // 每启动一个全新、未被任何进程占用过的 UDF，彻底规避 UDF 复用导致的初始化失败
+            _udf = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LunchHelper", "LockWebView2_" + Guid.NewGuid().ToString("N"));
+            CleanStaleUdfDirs();
+            Logger.Info("[诊断] 进程提权状态: Elevated=" + IsCurrentProcessElevated()
+                + ", 调试去样式(-nostyle)=" + _stripStyle);
             InitializeComponent();
         }
 
@@ -78,14 +98,16 @@ namespace LunchHelper
         {
             this.BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F);   // surface 暗色底色，WebView2 就绪前即深色，无白闪
             this.ForeColor = Color.White;
-            this.FormBorderStyle = FormBorderStyle.None;
+            // 调试开关 -nostyle：移除全部锁屏专属窗口样式（无边框/不在任务栏/全屏），
+            // 使本窗体退化为与配置页一致的普通 Sizable 窗口，用于隔离「提权下失败」是否由窗体样式导致。
+            this.FormBorderStyle = _stripStyle ? FormBorderStyle.Sizable : FormBorderStyle.None;
             // TopMost 必须推迟到 WebView2 控制器创建成功后再置位（见 OnWebViewInit / GiveUpGraceful）。
             // 在 TopMost（WS_EX_TOPMOST）父窗口上创建 WebView2 控制器会触发
             // CreateCoreWebView2ControllerAsync 返回 E_INVALIDARG（"值不在预期的范围内"），
             // 导致锁屏 WebView2 永远初始化失败；配置页（非 TopMost）正常即印证此点。
             this.TopMost = false;
-            this.ShowInTaskbar = false;
-            this.StartPosition = FormStartPosition.Manual;
+            this.ShowInTaskbar = _stripStyle ? true : false;
+            this.StartPosition = _stripStyle ? FormStartPosition.CenterScreen : FormStartPosition.Manual;
             this.WindowState = FormWindowState.Normal;
             // 不再于 Activated 里重复置 TopMost=true：激活事件可能在控制器创建前触发，
             // 会提前把窗口变成 TopMost 而破坏初始化。
@@ -97,17 +119,37 @@ namespace LunchHelper
                 // 与配置页一致：UserDataFolder 指向 LocalAppData（始终可写），不附加自定义浏览器参数。
                 CreationProperties = new CoreWebView2CreationProperties
                 {
-                    // 独立 UserDataFolder：必须与配置页(exe 目录)不同，否则同进程内两个 WebView2
-                    // 共用同一 UDF 会导致第二个初始化失败（官方文档确认：同 UDF 多实例需各自独立目录）。
-                    UserDataFolder = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                        "LunchHelper", "LockWebView2")
+                    // 每次启动使用独立的、带 GUID 的 UserDataFolder（见构造函数 _udf）：
+                    // 既与配置页(exe 目录)不同（避免同进程双 WebView2 撞 UDF），又保证每次都是全新目录，
+                    // 不会被上一次残留的 WebView2 浏览器进程锁住，从根上消除「首次成功、之后全败」。
+                    UserDataFolder = _udf
                 }
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
             Controls.Add(_web);
             // 注意：InitializeWebView 推迟到 OnHandleCreated（窗体尺寸确定后）再调用，
             // 避免「先以小尺寸初始化、后再放大到全屏」导致 WebView2 合成层不刷新而空白。
+        }
+
+        /// <summary>清理上一轮启动残留的临时 UDF 目录（含旧版无 GUID 的 LockWebView2），
+        /// 避免磁盘无限堆积；当前启动使用的 _udf 自身不动。被残留浏览器进程占用时删除会失败，忽略即可，
+        /// 下一轮启动会再次尝试清理。</summary>
+        private void CleanStaleUdfDirs()
+        {
+            try
+            {
+                string baseDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "LunchHelper");
+                if (!Directory.Exists(baseDir)) return;
+                foreach (var dir in Directory.GetDirectories(baseDir, "LockWebView2*"))
+                {
+                    if (string.Equals(dir, _udf, StringComparison.OrdinalIgnoreCase)) continue;
+                    try { Directory.Delete(dir, true); }
+                    catch { /* 可能被上一轮残留的浏览器进程占用，忽略，下次启动再清 */ }
+                }
+            }
+            catch { }
         }
 
         private async Task InitializeWebView()
@@ -121,10 +163,7 @@ namespace LunchHelper
             }
             try
             {
-                string udf = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "LunchHelper", "LockWebView2");
-                Logger.Info("WebView2 UserDataFolder: " + udf);
+                Logger.Info("WebView2 UserDataFolder: " + _udf);
                 // 诊断：与可用的配置页保持一致，使用默认环境（不附加 --no-sandbox/--disable-gpu 等自定义参数），
                 // 以判定「提权/非 Shell 启动」下的空白是否由自定义浏览器参数导致；UserDataFolder 已由
                 // CreationProperties 指定到 LocalAppData（始终可写）。
@@ -173,7 +212,7 @@ namespace LunchHelper
             if (_aborted) return;   // 已在其它路径放弃，避免访问已释放的 CoreWebView2
             try
             {
-                this.TopMost = true;   // 控制器已创建成功，此时再置顶不再影响初始化
+                if (!_stripStyle) this.TopMost = true;   // 控制器已创建成功，此时再置顶不再影响初始化；调试去样式模式不置顶
                 var settings = _web.CoreWebView2.Settings;
                 settings.AreDefaultContextMenusEnabled = false;   // 触控界面更干净
                 settings.AreDevToolsEnabled = _debug;
@@ -217,7 +256,7 @@ namespace LunchHelper
         {
             if (_aborted) return;
             _aborted = true;
-            try { this.TopMost = true; } catch { }   // 即使 WebView2 不可用，深色锁屏窗体仍须置顶以起到锁屏作用
+            try { if (!_stripStyle) this.TopMost = true; } catch { }   // 即使 WebView2 不可用，深色锁屏窗体仍须置顶以起到锁屏作用（调试去样式模式除外）
             Logger.Error("锁屏 WebView2 不可用，保留深色窗体（不降级原生），由倒计时自动解锁");
             try { _guardianTimer?.Stop(); } catch { }
             try { _lockoutTimer?.Stop(); } catch { }
@@ -403,6 +442,7 @@ namespace LunchHelper
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            if (_stripStyle) return;   // 调试去样式模式：保留普通窗口默认尺寸，不做全屏覆盖
             // 覆盖所有显示器
             Rectangle bounds = Screen.PrimaryScreen.Bounds;
             foreach (var s in Screen.AllScreens)
@@ -472,6 +512,50 @@ namespace LunchHelper
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TOPMOST = 0x00000008;
         private const int WS_EX_LAYERED = 0x00080000;
+
+        // ---- 进程提权状态诊断（用于确认「提权自动化工具下失败」是否确由提权令牌导致）----
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetTokenInformation(IntPtr tokenHandle, int tokenInformationClass,
+            IntPtr tokenInformation, uint tokenInformationLength, out uint returnLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TOKEN_ELEVATION { public int TokenIsElevated; }
+
+        /// <summary>判断当前进程是否以提权（高完整性/admin 令牌）运行。失败按非提权处理。</summary>
+        private static bool IsCurrentProcessElevated()
+        {
+            try
+            {
+                IntPtr token;
+                if (!OpenProcessToken(Process.GetCurrentProcess().Handle, 0x0008 /*TOKEN_QUERY*/, out token))
+                    return false;
+                try
+                {
+                    int size = Marshal.SizeOf(typeof(TOKEN_ELEVATION));
+                    IntPtr buf = Marshal.AllocHGlobal(size);
+                    try
+                    {
+                        uint ret;
+                        if (!GetTokenInformation(token, 20 /*TokenElevation*/, buf, (uint)size, out ret))
+                            return false;
+                        var elev = (TOKEN_ELEVATION)Marshal.PtrToStructure(buf, typeof(TOKEN_ELEVATION));
+                        return elev.TokenIsElevated != 0;
+                    }
+                    finally { Marshal.FreeHGlobal(buf); }
+                }
+                finally { CloseHandle(token); }
+            }
+            catch { return false; }
+        }
 
         /// <summary>把异常展开为可读诊断串：类型 + 消息 + HRESULT（COM 异常）+ 内部异常链。</summary>
         private static string DescribeException(Exception ex)
@@ -635,6 +719,9 @@ namespace LunchHelper
             try { _lockoutTimer?.Dispose(); } catch { }
             try { _guardianTimer?.Dispose(); } catch { }
             try { _renderWatchdog?.Dispose(); } catch { }
+            // 释放 WebView2 以让浏览器子进程退出，并清理本次的临时 UDF 目录（被占用时忽略，下轮再清）
+            try { _web?.Dispose(); } catch { }
+            try { if (_udf != null && Directory.Exists(_udf)) Directory.Delete(_udf, true); } catch { }
         }
     }
 }
