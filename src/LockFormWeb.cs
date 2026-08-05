@@ -71,6 +71,10 @@ namespace LunchHelper
         private int _initAttempts;        // WebView2 初始化重试计数（提权/Job 环境下控制器创建偶发失败，重试可自愈）
         private const int MaxInitAttempts = 3;
 
+        private bool _uiAccessGranted;   // 启动时探测一次：提权工具是否以 uiAccess 令牌拉起本进程（决定能否用真 WS_EX_TOPMOST 盖 Win+L）
+        private bool _topmostEnabled;    // 渲染成功后是否已按 uiAccess 环境启用真 WS_EX_TOPMOST（自愈计时器据此判定是否需工作）
+        private Timer _healTimer;        // 自愈计时器：真置顶+uiAccess 环境下周期轻量重绘，规避 WebView2 合成层偶发冻结致空白
+
         // 每次启动使用独立的、带 GUID 的 UserDataFolder（见构造函数）：锁屏为 kiosk 形态无需持久化
         // profile/cookie；核心目的是规避「上一次运行的 WebView2 浏览器子进程残留并锁住同一 UDF」
         // 导致后续启动 CreateCoreWebView2ControllerAsync 抛 E_INVALIDARG（首次成功、之后全败的死相）。
@@ -151,10 +155,10 @@ namespace LunchHelper
             this.BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F);   // surface 暗色底色，WebView2 就绪前即深色，无白闪
             this.ForeColor = Color.White;
             // 窗体样式由有效标志（_use*）决定，便于用 -nostyle + 各 -st-* 做二次隔离。
-            // 窗体从不使用 WS_EX_TOPMOST（WinForms TopMost）：该样式在提权/Job/uiAccess 环境下会抬高
-            // WebView2 控制器创建失败率。锁屏「视觉置顶」改用 HWND_TOP 周期前置（见 BringToFrontSafe / _topTimer）。
+            // 窗体在【控制器创建阶段】不使用 WS_EX_TOPMOST（WinForms TopMost）：该样式在提权/Job/uiAccess
+            // 环境下会抬高 WebView2 控制器创建失败率。渲染成功后再由 EnableLockTopmost 按 uiAccess 环境启用真置顶。
             this.FormBorderStyle = _useBorderless ? FormBorderStyle.None : FormBorderStyle.Sizable;
-            this.TopMost = false;   // 始终不使用 WS_EX_TOPMOST（见上）；置顶由 _topTimer 以 HWND_TOP 实现
+            this.TopMost = false;   // 创建阶段不置顶；渲染成功后由 EnableLockTopmost 按需启用真置顶
             this.ShowInTaskbar = !_useNoTaskbar;
             this.StartPosition = _useFullscreen ? FormStartPosition.Manual : FormStartPosition.CenterScreen;
             this.WindowState = FormWindowState.Normal;
@@ -288,7 +292,10 @@ namespace LunchHelper
             if (_aborted) return;   // 已在其它路径放弃，避免访问已释放的 CoreWebView2
             try
             {
-                if (_useTopmost) BringToFrontSafe();   // 控制器已创建成功：以非 WS_EX_TOPMOST 方式置前，避免破坏 WebView2
+                // 注意：此处【不】立即启用 WS_EX_TOPMOST 真置顶。父窗口带该样式会显著抬高 WebView2
+                // 控制器创建失败率，且创建阶段启用会在提权/Job/uiAccess 环境下冻结合成层而空白。
+                // 置顶推迟到锁屏页 ready 回执（HandleLockHost "ready"）后由 EnableLockTopmost 启用，
+                // 那时页面已确认渲染完成，再切 WS_EX_TOPMOST 并强重绘即可兼顾「盖住 Win+L」与「画面可见」。
                 var settings = _web.CoreWebView2.Settings;
                 settings.AreDefaultContextMenusEnabled = false;   // 触控界面更干净
                 settings.AreDevToolsEnabled = _debug;
@@ -332,7 +339,7 @@ namespace LunchHelper
         {
             if (_aborted) return;
             _aborted = true;
-            try { if (_useTopmost) BringToFrontSafe(); } catch { }   // 即使 WebView2 不可用，深色锁屏窗体仍以非 WS_EX_TOPMOST 方式置前
+            try { EnableLockTopmost(); } catch { }   // 即使 WebView2 不可用，也按 uiAccess 环境启用真置顶盖住锁屏
             Logger.Error("锁屏 WebView2 不可用，保留深色窗体（不降级原生），由倒计时自动解锁");
             try { _guardianTimer?.Stop(); } catch { }
             try { _lockoutTimer?.Stop(); } catch { }
@@ -400,7 +407,7 @@ namespace LunchHelper
                     try { _renderWatchdog?.Stop(); } catch { }
                     LogWebState("ready");
                     Logger.Debug("锁屏页 ready 回执，WebView2 已确认渲染");
-                    ForceWebPresent();           // 首轮兜底重绘：规避偶发合成层未刷新导致视觉空白
+                    EnableLockTopmost();         // 渲染确认后再启用真置顶（uiAccess 环境）+ 强重绘，兼顾覆盖与渲染
                     PushConfig();
                     // 二次兜底：稍后再触发一次，规避首轮过早、合成层尚未来得及刷新的极端情况
                     Task.Delay(400).ContinueWith(_ =>
@@ -527,8 +534,8 @@ namespace LunchHelper
             // 注意：WebView2 初始化推迟到 OnShown（窗体真正可见后）执行。
             // 经验证 OnShown 时父 HWND 已有效（IsWindow=True）却仍偶发 E_INVALIDARG——
             // 真因为提权自动化工具以 Job+uiAccess+高完整性 启动本进程，WebView2 控制器创建在该环境下
-            // 不稳定；而 WS_EX_TOPMOST 父窗口会显著抬高失败率。故本窗体从不使用 WS_EX_TOPMOST，
-            // 锁屏置顶改用 HWND_TOP 周期前置（见 BringToFrontSafe / _topTimer）。
+            // 不稳定；而 WS_EX_TOPMOST 父窗口会显著抬高创建失败率，故创建阶段本窗体不带 WS_EX_TOPMOST。
+            // 渲染成功后再由 EnableLockTopmost 按 uiAccess 环境启用真置顶（见该方法与 BringToFrontSafe）。
         }
 
         /// <summary>
@@ -589,6 +596,15 @@ namespace LunchHelper
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TOPMOST = 0x00000008;
         private const int WS_EX_LAYERED = 0x00080000;
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
+        private const uint RDW_INVALIDATE = 0x0001;
+        private const uint RDW_UPDATENOW = 0x0002;
+        private const uint RDW_ALLCHILDREN = 0x0080;
+        private const uint RDW_FRAME = 0x0400;
+        [DllImport("dwmapi.dll")]
+        private static extern void DwmFlush();
 
         // ---- 进程提权状态诊断（用于确认「提权自动化工具下失败」是否确由提权令牌导致）----
         [DllImport("advapi32.dll", SetLastError = true)]
@@ -772,6 +788,27 @@ namespace LunchHelper
             catch { }
         }
 
+        /// <summary>渲染成功后启用锁屏置顶。uiAccess 环境下必须用真正的 WS_EX_TOPMOST（this.TopMost=true）
+        /// 才能盖住 Win+L 安全桌面锁屏；普通环境无 uiAccess，WS_EX_TOPMOST 既盖不住又抬高 WebView2 合成层
+        /// 空白风险，故退回 HWND_TOP 视觉置顶。置顶推迟到渲染成功后，避免干扰 WebView2 控制器创建。</summary>
+        private void EnableLockTopmost()
+        {
+            if (!_useTopmost) return;
+            if (_uiAccessGranted)
+            {
+                try { this.TopMost = true; } catch { }   // 真置顶：配合 uiAccess 盖住 Win+L
+                try { _topTimer?.Stop(); } catch { }     // 已是永久最顶层，无需周期 HWND_TOP 前置
+                _topmostEnabled = true;
+                StartHealTimer();                         // 置顶后启动自愈，周期轻量重绘规避偶发空白
+                ForceWebPresent();                         // 置顶后强制重新合成，规避 WS_EX_TOPMOST 下偶发空白
+            }
+            else
+            {
+                _topmostEnabled = false;
+                BringToFrontSafe();                        // 普通视觉置顶，不引入 WS_EX_TOPMOST
+            }
+        }
+
         /// <summary>
         /// 强制 WebView2 重新呈现：偶发「JS 已 ready、但合成层未刷新」导致视觉空白。
         /// 通过重新置前 + 强制布局重算 + 极小尺寸扰动（±1 像素后还原）触发 DWM 重新合成来兜底。
@@ -781,9 +818,20 @@ namespace LunchHelper
             if (_web == null || _web.IsDisposed || this.IsDisposed || !this.IsHandleCreated) return;
             Logger.Debug("ForceWebPresent: 触发重新置顶与重绘兜底");
             try { this.BringToFront(); } catch { }
-            try { this.Activate(); } catch { }
             try
             {
+                // 强重绘核心：先隐藏再显示 WebView2 控件，强制其重建呈现连接（presentation surface）。
+                // 这是根治「WS_EX_TOPMOST + uiAccess 环境下 JS 已 ready 但视觉空白」的最有效手段；
+                // 控件与窗体背景均为深色，瞬隐瞬显无可见闪白。
+                try
+                {
+                    if (_web.Visible)
+                    {
+                        _web.Visible = false;
+                        _web.Visible = true;
+                    }
+                }
+                catch { }
                 _web.PerformLayout();
                 _web.Invalidate();
                 _web.Update();
@@ -797,6 +845,9 @@ namespace LunchHelper
                 _web.Invalidate();
                 _web.Update();
                 try { _web.Focus(); } catch { }   // 重新置顶后把键盘焦点交还网页文档，保证物理应急密码可用
+                // 强制 DWM 对整个窗口（含 WebView2 子控件）重新合成，根治 WS_EX_TOPMOST 下「JS ready 但空白」
+                try { RedrawWindow(this.Handle, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_FRAME); } catch { }
+                try { DwmFlush(); } catch { }
                 LogWebState("ForceWebPresent后");
             }
             catch (Exception ex)
@@ -805,9 +856,33 @@ namespace LunchHelper
             }
         }
 
+        /// <summary>启动置顶自愈计时器：uiAccess + WS_EX_TOPMOST 环境下 WebView2 合成层偶发冻结致空白，
+        /// 周期（1.2s）轻量强制 DWM 重绘可即时自愈，避免长期黑屏。仅当确为 uiAccess 真置顶时才启用。</summary>
+        private void StartHealTimer()
+        {
+            if (_healTimer != null) return;
+            _healTimer = new Timer { Interval = 1200 };
+            _healTimer.Tick += OnHealTick;
+            _healTimer.Start();
+            Logger.Debug("置顶自愈计时器已启动（1.2s 周期轻量重绘）");
+        }
+
+        /// <summary>自愈节拍：仅做轻量 DWM 重绘 + 维持 z 序最前，不做 Visible 切换，避免打断交互/动画。</summary>
+        private void OnHealTick(object sender, EventArgs e)
+        {
+            if (IsDisposed || !IsHandleCreated || _exiting || _aborted) return;
+            if (!_uiAccessGranted || !_topmostEnabled) return;   // 仅 uiAccess 真置顶环境需自愈
+            try { RedrawWindow(this.Handle, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN); } catch { }
+            try { DwmFlush(); } catch { }
+        }
+
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
+
+            // 一次性探测 uiAccess 令牌（提权工具是否以 uiAccess 拉起本进程），决定后续能否用真 WS_EX_TOPMOST 盖 Win+L
+            _uiAccessGranted = (GetCurrentUiAccess() == "是(True)");
+            Logger.Info("[诊断] uiAccess 已授予=" + _uiAccessGranted);
 
             _cfg = ConfigManager.Load();
             _remaining = _cfg.LockSeconds;
@@ -920,6 +995,7 @@ namespace LunchHelper
             try { _lockoutTimer?.Dispose(); } catch { }
             try { _guardianTimer?.Dispose(); } catch { }
             try { _topTimer?.Dispose(); } catch { }
+            try { _healTimer?.Dispose(); } catch { }
             try { _renderWatchdog?.Dispose(); } catch { }
             // 释放 WebView2 以让浏览器子进程退出，并清理本次的临时 UDF 目录（被占用时忽略，下轮再清）
             try { _web?.Dispose(); } catch { }

@@ -49,7 +49,7 @@
 - 守护进程（`-guardian`，由锁屏自动拉起）：监视锁屏进程，若被异常结束则自动重启；若已正常解锁则一同退出（进程间通过解锁标记文件协调，避免“解锁后又被重启”的死循环）
 - **已知限制（软锁的系统级边界）**：本程序为「软锁」，以下行为普通前台程序无法在「输入层面」拦截，属 Windows 设计限制、非本程序缺陷；但借助 `uiAccess="true"` 的**最强置顶**，锁屏全屏窗口会绘制在它们之上，使其不可见且不可用，实践中锁屏不破：
   - `Ctrl+Alt+Del`（SAS 安全序列）及由此打开的**安全桌面 / 登录界面**：位于一切窗口（含 uiAccess）之上，真正无法覆盖，是唯一的硬例外。
-  - 屏幕边缘滑动手势：从最右滑出**操作中心**、最左滑出**任务视图**、最底滑出**开始菜单**（由 Windows 外壳 explorer/DWM 在合成器层面识别）。`uiAccess` 置顶窗口会盖在它们之上，即使手势触发、面板也被挡在黑窗之后；前提是 `uiAccess` 已生效（exe 经代码签名或置于 ACL 正确的 `Program Files`）。
+  - 屏幕边缘滑动手势：从最右滑出**操作中心**、最左滑出**任务视图**、最底滑出**开始菜单**（由 Windows 外壳 explorer/DWM 在合成器层面识别）。`uiAccess` 置顶窗口会盖在它们之上，即使手势触发、面板也被挡在黑窗之后；前提是 `uiAccess` 已生效（exe 经代码签名或置于 ACL 正确的 `Program Files`，或由具备 `uiAccess` 的特权父进程拉起）。
   - 已做的尽力缓解：低级键盘钩子屏蔽 Win/Alt+Tab/Ctrl+Esc 等退出/切换类按键。锁屏为覆盖所有显示器的全屏置顶窗口，本身已挡住桌面与其它程序，普通触摸/点击无法落到窗口之外。
   - 如需在输入层面彻底禁用边缘手势，需改用 Windows「指定访问 / 展台模式（Assigned Access / Kiosk）」等系统级方案，超出本工具范围。
 
@@ -62,14 +62,16 @@
 | 放置 / 启动方式 | 能否盖任务管理器 | 说明 |
 |---|---|---|
 | 任意目录双击（普通用户） | ❌ 仅普通置顶 | 能覆盖桌面与大部分窗口，但会被任务管理器（High IL）覆盖 |
-| `C:\Program Files\LunchHelper\` 双击 | ✅ 可覆盖 | 受保护目录 + `uiAccess` 清单，Windows 授予强置顶（无需签名、无 UAC 弹窗） |
-| 任意目录「以管理员身份运行」 | ✅ 可覆盖 | 管理员 High IL 与任务管理器同级；配置里「UI Access 超级置顶」开关控制是否自动申请 UAC 提权 |
+| `C:\Program Files\LunchHelper\` 双击（**已签名**） | ✅ 可覆盖 | 受保护目录 + 代码签名（自签名亦可，见 `SelfSignTest.ps1`）+ `uiAccess` 清单，**三者缺一不可**：Windows 对请求 `uiAccess` 的进程始终执行 PKI 签名校验，仅放 Program Files 而**未签名不会**获得强置顶 |
+| 任意目录「以管理员身份运行」 | ✅ 可覆盖（非 uiAccess） | 管理员 High IL 与任务管理器同级，配合普通置顶即可覆盖；但这不等于 `uiAccess`，仅 `uiAccess` 才能盖住边缘手势面板等外壳层窗口 |
+| 由已提权的 uiAccess 父进程拉起（如 ClassIsland） | ✅ 可覆盖 | 子进程继承父进程的 `uiAccess` 令牌（`TokenUIAccess`），**无需签名/Program Files/清单声明**即获强置顶，可盖住 Win+L 安全桌面；本程序在锁屏页渲染确认后才启用真 `WS_EX_TOPMOST` 置顶，兼顾覆盖与 WebView2 渲染 |
 
 ### 具体规则
 
-- **当前发布（便携 zip，未签名）**：解压到任意目录双击即用，退化为普通置顶窗口（已能覆盖桌面与大部分程序）；要获得最强置顶，把解压目录放到 `Program Files` 下，或开启「UI Access 超级置顶」开关以管理员运行。
-- **Program Files 路径**：放到 `C:\Program Files\LunchHelper\` 后双击，无需 UAC 即可获得 uiAccess 强置顶（前提是系统默认 UAC 策略 `EnableSecureUIAPaths=1`，绝大多数机器如此）。
-- **管理员运行**：开启「UI Access 超级置顶」后，每次启动会弹一次 UAC 申请提权，提权后即获强置顶。
+- **当前发布（便携 zip，未签名）**：解压到任意目录双击即用，退化为普通置顶窗口（已能覆盖桌面与大部分程序）；普通置顶无法盖住任务管理器与外壳层面板。要获得最强置顶（`uiAccess`），必须满足「受保护目录 + 可信签名 + 清单 `uiAccess=true`」三者。
+- **Program Files 路径（需签名）**：放到 `C:\Program Files\LunchHelper\` 并经代码签名后双击，无需 UAC 即可获得 `uiAccess` 强置顶。免费做法是自签名证书（本机信任其根）后部署，见 `SelfSignTest.ps1`。注意：仅放 Program Files 而**未签名**不会获得 `uiAccess`（Windows 对 `uiAccess` 始终强制 PKI 签名校验）。
+- **管理员运行**：开启「UI Access 超级置顶」后，每次启动会弹一次 UAC 申请提权，提权后获 High IL + 普通置顶，可覆盖任务管理器，但仍不等于 `uiAccess`。
+- **特权父进程授予（无需签名）**：若由已提权且自身携带 `uiAccess` 的进程（如 ClassIsland 等自动化/锁屏工具）以子进程方式拉起，子进程会继承父进程的 `uiAccess` 令牌（`TokenUIAccess`），**无需签名、无需 Program Files、无需清单声明**即可获得真 `uiAccess` 强置顶，从而盖住 Win+L 等安全桌面。本程序已适配此路径（`LockFormWeb` 在锁屏页 `ready` 回执后才启用 `WS_EX_TOPMOST` 真置顶，避免该样式在 WebView2 初始化阶段抬高渲染失败/空白风险）。注意：此路径依赖父进程确实具备 `uiAccess`，普通双击或管理员运行不触发。
 
 > 已知限制：`Ctrl+Alt+Del` 安全序列打开的安全桌面位于一切窗口（含 uiAccess）之上，真正无法覆盖，属 Windows 设计限制。
 
@@ -115,6 +117,7 @@ LunchHelper/
 ├── app.manifest            # 含 uiAccess 清单（当前默认 false，未签名发布）
 ├── build.bat               # 一键构建脚本（Windows）
 ├── pack.ps1                # 构建后打包发布 zip（CI 与本地共用）
+├── SelfSignTest.ps1        # 本地自签名部署（生成根证书→签名→装进 Program Files，仅本机体验 uiAccess）
 ├── plugins/                # 插件目录（含示例插件 Com.Example.Demo）
 ├── src/
 │   ├── Program.cs          # 入口：参数解析、单实例互斥、模式分发、拉起守护
