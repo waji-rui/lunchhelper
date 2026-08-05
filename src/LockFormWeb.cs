@@ -43,7 +43,12 @@ namespace LunchHelper
     internal class LockFormWeb : Form
     {
         private readonly bool _debug;
-        private readonly bool _stripStyle;   // 调试开关 -nostyle：移除全部锁屏专属窗口样式，退化成普通窗口以隔离提权下失败是否由样式导致
+        private readonly bool _stripStyle;   // 调试开关 -nostyle：基线为普通窗口，配合下方各 -st-* 增量开关单独加回某个锁屏样式以做二次隔离
+        // 有效窗体样式（由 -nostyle 与各 -st-* 增量开关组合决定），用于二次隔离「提权下失败」究竟是哪一个样式导致
+        private readonly bool _useBorderless; // 无边框（FormBorderStyle.None）
+        private readonly bool _useNoTaskbar;  // 不在任务栏（ShowInTaskbar=false）
+        private readonly bool _useFullscreen; // 全屏覆盖所有显示器（StartPosition=Manual + 并集 Bounds）
+        private readonly bool _useTopmost;    // 控制器创建成功后置顶（TopMost=true）
         private int _guardianPid;
         private Config _cfg;
 
@@ -74,13 +79,41 @@ namespace LunchHelper
         {
             _debug = debug;
             _guardianPid = guardianPid;
-            // 调试开关 -nostyle：移除全部锁屏专属窗口样式，使本窗体退化为普通 Sizable 窗口，
-            // 用于隔离「提权自动化工具下失败」是否由窗体样式（无边框/置顶/全屏）导致。
+            // 二次隔离开关：基线为 -nostyle（普通窗口），再用各 -st-* 单独加回某个锁屏样式，
+            // 以判定「提权工具下失败」究竟由哪一个窗体样式导致。
+            //   -nostyle        移除全部锁屏样式（普通 Sizable 窗口，已知可成功）
+            //   -st-borderless  加回 无边框（FormBorderStyle.None）
+            //   -st-notaskbar   加回 不在任务栏（ShowInTaskbar=false）
+            //   -st-fullscreen  加回 全屏覆盖所有显示器
+            //   -st-topmost     加回 控制器创建成功后置顶（TopMost=true）
+            // 不加 -nostyle 时即为完整锁屏（全部样式生效）。
             string[] args = Environment.GetCommandLineArgs();
-            bool strip = false;
+            bool strip = false, addBl = false, addTb = false, addFs = false, addTm = false;
             foreach (var a in args)
-                if (string.Equals(a, "-nostyle", StringComparison.OrdinalIgnoreCase)) { strip = true; break; }
+            {
+                if (string.Equals(a, "-nostyle", StringComparison.OrdinalIgnoreCase)) strip = true;
+                else if (string.Equals(a, "-st-borderless", StringComparison.OrdinalIgnoreCase)) addBl = true;
+                else if (string.Equals(a, "-st-notaskbar", StringComparison.OrdinalIgnoreCase)) addTb = true;
+                else if (string.Equals(a, "-st-fullscreen", StringComparison.OrdinalIgnoreCase)) addFs = true;
+                else if (string.Equals(a, "-st-topmost", StringComparison.OrdinalIgnoreCase)) addTm = true;
+            }
             _stripStyle = strip;
+            if (strip)
+            {
+                // 基线为普通窗口，仅加上显式请求的样式
+                _useBorderless = addBl;
+                _useNoTaskbar = addTb;
+                _useFullscreen = addFs;
+                _useTopmost = addTm;
+            }
+            else
+            {
+                // 完整锁屏：全部样式生效
+                _useBorderless = true;
+                _useNoTaskbar = true;
+                _useFullscreen = true;
+                _useTopmost = true;
+            }
             // 每启动一个全新、未被任何进程占用过的 UDF，彻底规避 UDF 复用导致的初始化失败
             _udf = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -90,7 +123,11 @@ namespace LunchHelper
                 + ", 完整性级别=" + GetCurrentIntegrityLevel()
                 + ", uiAccess=" + GetCurrentUiAccess()
                 + ", 是否处于Job=" + GetCurrentJobState()
-                + ", 调试去样式(-nostyle)=" + _stripStyle);
+                + ", 样式组合: -nostyle=" + _stripStyle
+                + ", 无边框=" + _useBorderless
+                + ", 不在任务栏=" + _useNoTaskbar
+                + ", 全屏=" + _useFullscreen
+                + ", 置顶=" + _useTopmost);
             InitializeComponent();
         }
 
@@ -101,19 +138,14 @@ namespace LunchHelper
         {
             this.BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F);   // surface 暗色底色，WebView2 就绪前即深色，无白闪
             this.ForeColor = Color.White;
-            // 调试开关 -nostyle：移除全部锁屏专属窗口样式（无边框/不在任务栏/全屏），
-            // 使本窗体退化为与配置页一致的普通 Sizable 窗口，用于隔离「提权下失败」是否由窗体样式导致。
-            this.FormBorderStyle = _stripStyle ? FormBorderStyle.Sizable : FormBorderStyle.None;
-            // TopMost 必须推迟到 WebView2 控制器创建成功后再置位（见 OnWebViewInit / GiveUpGraceful）。
-            // 在 TopMost（WS_EX_TOPMOST）父窗口上创建 WebView2 控制器会触发
-            // CreateCoreWebView2ControllerAsync 返回 E_INVALIDARG（"值不在预期的范围内"），
-            // 导致锁屏 WebView2 永远初始化失败；配置页（非 TopMost）正常即印证此点。
-            this.TopMost = false;
-            this.ShowInTaskbar = _stripStyle ? true : false;
-            this.StartPosition = _stripStyle ? FormStartPosition.CenterScreen : FormStartPosition.Manual;
+            // 窗体样式由有效标志（_use*）决定，便于用 -nostyle + 各 -st-* 做二次隔离。
+            // 注：控制器创建期间 TopMost 始终为 false（见下方），置顶推迟到 OnWebViewInit/GiveUpGraceful
+            // 成功之后，故「置顶」不会在创建阶段干扰 WebView2。
+            this.FormBorderStyle = _useBorderless ? FormBorderStyle.None : FormBorderStyle.Sizable;
+            this.TopMost = false;   // 创建阶段保持非置顶；成功后再按 _useTopmost 置位
+            this.ShowInTaskbar = !_useNoTaskbar;
+            this.StartPosition = _useFullscreen ? FormStartPosition.Manual : FormStartPosition.CenterScreen;
             this.WindowState = FormWindowState.Normal;
-            // 不再于 Activated 里重复置 TopMost=true：激活事件可能在控制器创建前触发，
-            // 会提前把窗口变成 TopMost 而破坏初始化。
 
             _web = new WebView2
             {
@@ -215,7 +247,7 @@ namespace LunchHelper
             if (_aborted) return;   // 已在其它路径放弃，避免访问已释放的 CoreWebView2
             try
             {
-                if (!_stripStyle) this.TopMost = true;   // 控制器已创建成功，此时再置顶不再影响初始化；调试去样式模式不置顶
+                if (_useTopmost) this.TopMost = true;   // 控制器已创建成功，此时再置顶不再影响初始化
                 var settings = _web.CoreWebView2.Settings;
                 settings.AreDefaultContextMenusEnabled = false;   // 触控界面更干净
                 settings.AreDevToolsEnabled = _debug;
@@ -259,7 +291,7 @@ namespace LunchHelper
         {
             if (_aborted) return;
             _aborted = true;
-            try { if (!_stripStyle) this.TopMost = true; } catch { }   // 即使 WebView2 不可用，深色锁屏窗体仍须置顶以起到锁屏作用（调试去样式模式除外）
+            try { if (_useTopmost) this.TopMost = true; } catch { }   // 即使 WebView2 不可用，深色锁屏窗体仍须置顶以起到锁屏作用
             Logger.Error("锁屏 WebView2 不可用，保留深色窗体（不降级原生），由倒计时自动解锁");
             try { _guardianTimer?.Stop(); } catch { }
             try { _lockoutTimer?.Stop(); } catch { }
@@ -445,7 +477,7 @@ namespace LunchHelper
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            if (_stripStyle) return;   // 调试去样式模式：保留普通窗口默认尺寸，不做全屏覆盖
+            if (!_useFullscreen) return;   // 非全屏模式：保留默认窗口尺寸
             // 覆盖所有显示器
             Rectangle bounds = Screen.PrimaryScreen.Bounds;
             foreach (var s in Screen.AllScreens)
