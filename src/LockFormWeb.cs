@@ -610,9 +610,10 @@ namespace LunchHelper
                                 case 0x0000: return "无(0)";
                                 case 0x1000: return "低(Low)";
                                 case 0x2000: return "中(Medium)";
-                                case 0x3000: return "中+(Medium+)";
-                                case 0x4000: return "高(High)";
-                                case 0x5000: return "系统(System)";
+                                case 0x2100: return "中+(Medium+)";
+                                case 0x3000: return "高(High)";
+                                case 0x4000: return "系统(System)";
+                                case 0x5000: return "保护进程(Protected)";
                                 default: return "IL=0x" + rid.ToString("X4") + "(" + sid + ")";
                             }
                         }
