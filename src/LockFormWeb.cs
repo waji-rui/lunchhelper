@@ -86,7 +86,10 @@ namespace LunchHelper
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "LunchHelper", "LockWebView2_" + Guid.NewGuid().ToString("N"));
             CleanStaleUdfDirs();
-            Logger.Info("[诊断] 进程提权状态: Elevated=" + IsCurrentProcessElevated()
+            Logger.Info("[诊断] 进程环境: Elevated=" + IsCurrentProcessElevated()
+                + ", 完整性级别=" + GetCurrentIntegrityLevel()
+                + ", uiAccess=" + GetCurrentUiAccess()
+                + ", 是否处于Job=" + GetCurrentJobState()
                 + ", 调试去样式(-nostyle)=" + _stripStyle);
             InitializeComponent();
         }
@@ -555,6 +558,106 @@ namespace LunchHelper
                 finally { CloseHandle(token); }
             }
             catch { return false; }
+        }
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool ConvertSidToStringSid(IntPtr pSid, out IntPtr str);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsProcessInJob(IntPtr processHandle, IntPtr jobHandle, out bool result);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr LocalFree(IntPtr hMem);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TOKEN_MANDATORY_LABEL { public SID_AND_ATTRIBUTES Label; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SID_AND_ATTRIBUTES { public IntPtr Sid; public int Attributes; }
+
+        /// <summary>读取当前进程令牌的实际完整性级别（低/中/高/系统）。用于区分「普通提权(高完整性)」
+        /// 与「工具以更高/特殊令牌启动」——WebView2 官方建议在标准(中)完整性下运行，宿主完整性越高越易失败。</summary>
+        private static string GetCurrentIntegrityLevel()
+        {
+            IntPtr token;
+            if (!OpenProcessToken(Process.GetCurrentProcess().Handle, 0x0008 /*TOKEN_QUERY*/, out token))
+                return "未知(OpenProcessToken失败)";
+            try
+            {
+                uint size;
+                GetTokenInformation(token, 25 /*TokenIntegrityLevel*/, IntPtr.Zero, 0, out size);
+                if (size == 0) return "未知(取长度失败)";
+                IntPtr buf = Marshal.AllocHGlobal((int)size);
+                try
+                {
+                    if (!GetTokenInformation(token, 25, buf, size, out size))
+                        return "未知(GetTokenInformation失败)";
+                    var tml = (TOKEN_MANDATORY_LABEL)Marshal.PtrToStructure(buf, typeof(TOKEN_MANDATORY_LABEL));
+                    IntPtr str;
+                    if (!ConvertSidToStringSid(tml.Label.Sid, out str))
+                        return "未知(ConvertSid失败)";
+                    try
+                    {
+                        string sid = Marshal.PtrToStringAuto(str);   // 形如 S-1-16-12288
+                        string[] parts = sid.Split('-');
+                        uint rid;
+                        if (parts.Length >= 1 && uint.TryParse(parts[parts.Length - 1], out rid))
+                        {
+                            switch (rid)
+                            {
+                                case 0x0000: return "无(0)";
+                                case 0x1000: return "低(Low)";
+                                case 0x2000: return "中(Medium)";
+                                case 0x3000: return "中+(Medium+)";
+                                case 0x4000: return "高(High)";
+                                case 0x5000: return "系统(System)";
+                                default: return "IL=0x" + rid.ToString("X4") + "(" + sid + ")";
+                            }
+                        }
+                        return sid;
+                    }
+                    finally { LocalFree(str); }
+                }
+                finally { Marshal.FreeHGlobal(buf); }
+            }
+            finally { CloseHandle(token); }
+        }
+
+        /// <summary>读取当前进程令牌的 uiAccess 标志（TokenUIAccess=26）。若提权工具自身带 uiAccess，
+        /// 子进程会继承该令牌，可能干扰 WebView2 派生其浏览器子进程。</summary>
+        private static string GetCurrentUiAccess()
+        {
+            IntPtr token;
+            if (!OpenProcessToken(Process.GetCurrentProcess().Handle, 0x0008, out token))
+                return "未知";
+            try
+            {
+                IntPtr buf = Marshal.AllocHGlobal(4);
+                try
+                {
+                    uint ret;
+                    if (!GetTokenInformation(token, 26 /*TokenUIAccess*/, buf, 4, out ret))
+                        return "未知";
+                    return Marshal.ReadInt32(buf) != 0 ? "是(True)" : "否(False)";
+                }
+                finally { Marshal.FreeHGlobal(buf); }
+            }
+            finally { CloseHandle(token); }
+        }
+
+        /// <summary>判断当前进程是否处于作业对象(Job)中。若提权工具把子进程放入禁用 child-breakaway 的作业，
+        /// WebView2 将无法派生其浏览器子进程，导致内容已加载却空白。</summary>
+        private static string GetCurrentJobState()
+        {
+            try
+            {
+                bool inJob;
+                IsProcessInJob(Process.GetCurrentProcess().Handle, IntPtr.Zero, out inJob);
+                return inJob ? "是(在Job中)" : "否(不在Job)";
+            }
+            catch (Exception ex) { return "未知(" + ex.Message + ")"; }
         }
 
         /// <summary>把异常展开为可读诊断串：类型 + 消息 + HRESULT（COM 异常）+ 内部异常链。</summary>
