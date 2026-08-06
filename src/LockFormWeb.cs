@@ -178,6 +178,7 @@ namespace LunchHelper
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
             Controls.Add(_web);
+            _web.Visible = false;   // 初始化阶段隐藏，窗体先显深色底色；暗色页面绘制完成（ready）后再首显，避免首帧白闪
             // 注意：InitializeWebView 推迟到 OnHandleCreated（窗体尺寸确定后）再调用，
             // 避免「先以小尺寸初始化、后再放大到全屏」导致 WebView2 合成层不刷新而空白。
         }
@@ -297,6 +298,7 @@ namespace LunchHelper
                 // 置顶推迟到锁屏页 ready 回执（HandleLockHost "ready"）后由 EnableLockTopmost 启用，
                 // 那时页面已确认渲染完成，再切 WS_EX_TOPMOST 并强重绘即可兼顾「盖住 Win+L」与「画面可见」。
                 var settings = _web.CoreWebView2.Settings;
+                TrySetWebViewDarkBackground();   // 合成层暗色底色，消除首帧白闪
                 settings.AreDefaultContextMenusEnabled = false;   // 触控界面更干净
                 settings.AreDevToolsEnabled = _debug;
                 settings.IsZoomControlEnabled = false;
@@ -407,6 +409,7 @@ namespace LunchHelper
                     try { _renderWatchdog?.Stop(); } catch { }
                     LogWebState("ready");
                     Logger.Debug("锁屏页 ready 回执，WebView2 已确认渲染");
+                    try { _web.Visible = true; } catch { }   // 首显已绘制的暗色页面，避免首帧白闪
                     EnableLockTopmost();         // 渲染确认后再启用真置顶（uiAccess 环境）+ 强重绘，兼顾覆盖与渲染
                     PushConfig();
                     // 二次兜底：稍后再触发一次，规避首轮过早、合成层尚未来得及刷新的极端情况
@@ -604,6 +607,75 @@ namespace LunchHelper
         private const uint RDW_FRAME = 0x0400;
         [DllImport("dwmapi.dll")]
         private static extern void DwmFlush();
+
+        // 通过 COM 将 WebView2 合成层默认底色设为暗色，消除首帧白闪。
+        // 旧版 SDK 1.0.4078.44 的 C# 包装无 CoreWebView2.DefaultBackgroundColor 属性，故直接 QI ICoreWebView2Controller2 设置。
+        // 声明原生 vtable（含 v1 预留槽位）与反射取控制器字段均依赖 SDK 内部实现，整体包在 try/catch，失败仅留白闪、不影响覆盖。
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("F9606ACC-DA9C-4B2A-A942-8D4E8A7D9E6D")]
+        private interface ICoreWebView2Controller
+        {
+            void _0(); void _1(); void _2(); void _3(); void _4(); void _5(); void _6();
+            void _7(); void _8(); void _9(); void _10(); void _11(); void _12(); void _13();
+            void _14(); void _15(); void _16(); void _17(); void _18(); void _19(); void _20();
+            void _21(); void _22();
+        }
+
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("ABB37CAE-6FEC-453C-A68A-BB8889F700C7")]
+        private interface ICoreWebView2Controller2 : ICoreWebView2Controller
+        {
+            uint GetDefaultBackgroundColor();
+            void SetDefaultBackgroundColor(uint color);
+        }
+
+        /// <summary>将 WebView2 合成层默认底色设为暗色（与窗体一致），消除首帧白闪。
+        /// 仅在 ICoreWebView2Controller2 可用时生效；失败仅留白闪，不影响覆盖与渲染。</summary>
+        private void TrySetWebViewDarkBackground()
+        {
+            try
+            {
+                // COREWEBVIEW2_COLOR 字节序为 A,R,G,B（低→高），暗色 surface 0x1C1B1F 不透明：
+                // A=FF,R=1C,G=1B,B=1F → uint = 0x1F1B1CFF
+                const uint dark = 0x1F1B1CFF;
+                object ctrl = null;
+                // 1) 优先按常见字段名取控制器（不同 SDK 版本字段名不一）
+                foreach (var name in new[] { "myController", "_coreWebView2Controller", "coreWebView2Controller", "_nativeController", "controller" })
+                {
+                    var fld = typeof(WebView2).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (fld != null) { var v = fld.GetValue(_web); if (v != null) { ctrl = v; break; } }
+                }
+                // 2) 兜底：遍历所有私有 COM 字段，逐个尝试 QI 到 ICoreWebView2Controller2
+                if (ctrl == null)
+                {
+                    var iid2 = new Guid("ABB37CAE-6FEC-453C-A68A-BB8889F700C7");
+                    foreach (var f in typeof(WebView2).GetFields(BindingFlags.Instance | BindingFlags.NonPublic))
+                    {
+                        var v = f.GetValue(_web);
+                        if (v == null || !Marshal.IsComObject(v)) continue;
+                        IntPtr pu = Marshal.GetIUnknownForObject(v);
+                        if (Marshal.QueryInterface(pu, ref iid2, out IntPtr pTmp) == 0)
+                        { Marshal.Release(pTmp); Marshal.Release(pu); ctrl = v; break; }
+                        Marshal.Release(pu);
+                    }
+                }
+                if (ctrl == null) { Logger.Info("TrySetWebViewDarkBackground: 未找到控制器，跳过"); return; }
+                IntPtr pUnk = Marshal.GetIUnknownForObject(ctrl);
+                var iid = new Guid("ABB37CAE-6FEC-453C-A68A-BB8889F700C7");
+                if (Marshal.QueryInterface(pUnk, ref iid, out IntPtr pCtrl2) != 0)
+                { Logger.Info("TrySetWebViewDarkBackground: QI ICoreWebView2Controller2 失败，跳过"); Marshal.Release(pUnk); return; }
+                try
+                {
+                    var ctrl2 = (ICoreWebView2Controller2)Marshal.GetObjectForIUnknown(pCtrl2);
+                    ctrl2.SetDefaultBackgroundColor(dark);
+                    Logger.Info("TrySetWebViewDarkBackground: 已设置暗色合成层底色");
+                }
+                finally { Marshal.Release(pCtrl2); Marshal.Release(pUnk); }
+            }
+            catch (Exception ex) { Logger.Info("TrySetWebViewDarkBackground 异常（忽略，仅留白闪）: " + ex.Message); }
+        }
 
         // ---- 进程提权状态诊断（用于确认「提权自动化工具下失败」是否确由提权令牌导致）----
         [DllImport("advapi32.dll", SetLastError = true)]
@@ -819,18 +891,8 @@ namespace LunchHelper
             try { this.BringToFront(); } catch { }
             try
             {
-                // 强重绘核心：先隐藏再显示 WebView2 控件，强制其重建呈现连接（presentation surface）。
-                // 这是根治「WS_EX_TOPMOST + uiAccess 环境下 JS 已 ready 但视觉空白」的最有效手段；
-                // 控件与窗体背景均为深色，瞬隐瞬显无可见闪白。
-                try
-                {
-                    if (_web.Visible)
-                    {
-                        _web.Visible = false;
-                        _web.Visible = true;
-                    }
-                }
-                catch { }
+                // 强重绘：强制布局重算与重绘，触发 DWM 重新合成，规避「JS 已 ready 但视觉空白」。
+                // 不做 Visible 切换（detach/reattach 合成层会露白帧）。
                 _web.PerformLayout();
                 _web.Invalidate();
                 _web.Update();
