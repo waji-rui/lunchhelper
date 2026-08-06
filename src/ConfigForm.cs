@@ -50,14 +50,14 @@ namespace LunchHelper
         private Color _onAccent;
 
         // MD3 动态深色配色：由 Windows 强调色（源色）按官方 tone 映射生成整套角色，
-        // 详见 GenerateMd3DarkScheme 注释。_scheme 在构造期计算一次。
-        private Md3Scheme _scheme;
+        // 详见 WebUiShell.GenerateMd3DarkScheme 注释。_scheme 在构造期计算一次。
+        private WebUiShell.Md3Scheme _scheme;
 
         public ConfigForm(bool debug)
         {
             _debug = debug;
             Color src = NativeMethods.GetAccentColor();   // Windows 强调色 = MD3 source color
-            _scheme = GenerateMd3DarkScheme(src);
+            _scheme = WebUiShell.GenerateMd3DarkScheme(src);
             _accent = _scheme.Primary;
             _onAccent = _scheme.OnPrimary;
             InitializeComponent();
@@ -259,7 +259,6 @@ namespace LunchHelper
                     break;
                 case "dialogResult":
                     // C# 主动弹窗（ShowHostDialog）的用户操作结果，由前端 __showHostDialog 回调触发。
-                    // 目前仅记录，后续可在此接入具体业务（如确认后执行某动作）。
                     try
                     {
                         string btn = msg.Data != null ? (msg.Data.ButtonId ?? "") : "";
@@ -617,18 +616,18 @@ namespace LunchHelper
             sb.Append("\"slogan\":").Append(JsonString(cfg.Slogan)).Append(',');
             sb.Append("\"enableUiAccess\":").Append(cfg.EnableUiAccess ? "true" : "false").Append(',');
             // MD3 动态配色：整套路色由 Windows 强调色生成后注入 CSS 变量
-            sb.Append("\"accent\":\"").Append(ColorToHex(s.Primary)).Append("\",");
-            sb.Append("\"on-accent\":\"").Append(ColorToHex(s.OnPrimary)).Append("\",");
-            sb.Append("\"accent-container\":\"").Append(ColorToHex(s.PrimaryContainer)).Append("\",");
-            sb.Append("\"on-accent-container\":\"").Append(ColorToHex(s.OnPrimaryContainer)).Append("\",");
-            sb.Append("\"surface\":\"").Append(ColorToHex(s.Surface)).Append("\",");
-            sb.Append("\"on-surface\":\"").Append(ColorToHex(s.OnSurface)).Append("\",");
-            sb.Append("\"surface-container\":\"").Append(ColorToHex(s.SurfaceContainer)).Append("\",");
-            sb.Append("\"surface-container-high\":\"").Append(ColorToHex(s.SurfaceContainerHigh)).Append("\",");
-            sb.Append("\"surface-container-highest\":\"").Append(ColorToHex(s.SurfaceContainerHighest)).Append("\",");
-            sb.Append("\"surface-variant\":\"").Append(ColorToHex(s.SurfaceVariant)).Append("\",");
-            sb.Append("\"on-surface-variant\":\"").Append(ColorToHex(s.OnSurfaceVariant)).Append("\",");
-            sb.Append("\"outline\":\"").Append(ColorToHex(s.Outline)).Append("\",");
+            sb.Append("\"accent\":\"").Append(WebUiShell.ColorToHex(s.Primary)).Append("\",");
+            sb.Append("\"on-accent\":\"").Append(WebUiShell.ColorToHex(s.OnPrimary)).Append("\",");
+            sb.Append("\"accent-container\":\"").Append(WebUiShell.ColorToHex(s.PrimaryContainer)).Append("\",");
+            sb.Append("\"on-accent-container\":\"").Append(WebUiShell.ColorToHex(s.OnPrimaryContainer)).Append("\",");
+            sb.Append("\"surface\":\"").Append(WebUiShell.ColorToHex(s.Surface)).Append("\",");
+            sb.Append("\"on-surface\":\"").Append(WebUiShell.ColorToHex(s.OnSurface)).Append("\",");
+            sb.Append("\"surface-container\":\"").Append(WebUiShell.ColorToHex(s.SurfaceContainer)).Append("\",");
+            sb.Append("\"surface-container-high\":\"").Append(WebUiShell.ColorToHex(s.SurfaceContainerHigh)).Append("\",");
+            sb.Append("\"surface-container-highest\":\"").Append(WebUiShell.ColorToHex(s.SurfaceContainerHighest)).Append("\",");
+            sb.Append("\"surface-variant\":\"").Append(WebUiShell.ColorToHex(s.SurfaceVariant)).Append("\",");
+            sb.Append("\"on-surface-variant\":\"").Append(WebUiShell.ColorToHex(s.OnSurfaceVariant)).Append("\",");
+            sb.Append("\"outline\":\"").Append(WebUiShell.ColorToHex(s.Outline)).Append("\",");
             sb.Append("\"minPin\":").Append(ConfigManager.MinPinLength).Append(',');
             sb.Append("\"maxPin\":").Append(ConfigManager.MaxPinLength).Append(',');
             // 跟随 Windows“显示动画”系统设置：false 时前端全局禁用过渡/动画
@@ -776,113 +775,6 @@ namespace LunchHelper
             }
             sb.Append("\"");
             return sb.ToString();
-        }
-
-        private static string ColorToHex(Color c) =>
-            "#" + c.R.ToString("X2") + c.G.ToString("X2") + c.B.ToString("X2");
-
-        /// <summary>
-        /// MD3 暗色主题整套角色色板（由 source color 生成）。
-        /// </summary>
-        private sealed class Md3Scheme
-        {
-            public Color Surface, OnSurface, SurfaceContainer, SurfaceContainerHigh, SurfaceContainerHighest,
-                         SurfaceVariant, OnSurfaceVariant, Outline,
-                         Primary, OnPrimary, PrimaryContainer, OnPrimaryContainer;
-        }
-
-        /// <summary>
-        /// 按 Material Design 3 官方暗色 tone 角色映射，从源色（Windows 强调色）生成整套配色。
-        /// 官方 baseline 精确 hex（source #6750A4）见 ConfigPage.html 的 :root 静态兜底：
-        /// surface=#1C1B1F(tone6) / surface-container=#211F26(tone11) / surface-container-high=#2B2930(tone17) /
-        /// surface-container-highest=#36343B(tone22) / surface-variant=#49454F(tone30) /
-        /// on-surface=#E6E1E5(tone90) / on-surface-variant=#CAC4D0(tone80) / outline=#938F99(tone60) /
-        /// primary=#D0BCFF(tone80) / on-primary=#381E72(tone20) / primary-container=#4F378B(tone30) /
-        /// on-primary-container=#EADDFF(tone90)。
-        ///
-        /// 实现：主色板沿用源色相/饱和度，按 MD3 暗色 tone 映射（primary=80/on-primary=20/
-        /// primary-container=30/on-primary-container=90）；中性板用同源色相、低饱和度。
-        /// 注意：HSL 的 L 通道 ≠ M3 的 tone（HCT/CAM16 亮度），这里用 HSL-L 近似 tone 阶梯
-        /// （surface≈L11 / container≈L13 / high≈L18 / highest=L22 / variant=L30）以贴近官方观感；
-        /// 完整 HCT 需约千行代码，对主题化已足够。
-        /// </summary>
-        private static Md3Scheme GenerateMd3DarkScheme(Color source)
-        {
-            RgbToHsl(source, out double h, out double s, out _);
-            // 主色板：沿用源色相与饱和度，按 MD3 暗色 tone 映射
-            Color primary = HslToColor(h, s, 80);
-            Color onPrimary = HslToColor(h, s, 20);
-            Color primaryContainer = HslToColor(h, s, 30);
-            Color onPrimaryContainer = HslToColor(h, s, 90);
-            // 中性板：同源色相 + 低饱和度。系数参考 baseline #6750A4 反推：
-            // surface(s≈7%)、container(s≈10%)、on-surface-variant(s≈11%)、outline(s≈5%)。
-            double ns = Math.Min(s * 0.23, 8.0);   // 表面/容器：微色偏，封顶避免过艳
-            double nvs = Math.Min(s * 0.33, 12.0); // on-surface-variant 可稍明显
-            double os = Math.Min(s * 0.14, 5.0);   // 描边：极低色偏
-            Color surface = HslToColor(h, ns, 11);
-            Color onSurface = HslToColor(h, ns, 90);
-            Color surfaceContainer = HslToColor(h, ns, 13);
-            Color surfaceContainerHigh = HslToColor(h, ns, 18);
-            Color surfaceContainerHighest = HslToColor(h, ns, 22);
-            Color surfaceVariant = HslToColor(h, ns, 30);
-            Color onSurfaceVariant = HslToColor(h, nvs, 80);
-            Color outline = HslToColor(h, os, 60);
-            return new Md3Scheme
-            {
-                Surface = surface, OnSurface = onSurface,
-                SurfaceContainer = surfaceContainer, SurfaceContainerHigh = surfaceContainerHigh,
-                SurfaceContainerHighest = surfaceContainerHighest,
-                SurfaceVariant = surfaceVariant, OnSurfaceVariant = onSurfaceVariant,
-                Outline = outline,
-                Primary = primary, OnPrimary = onPrimary,
-                PrimaryContainer = primaryContainer, OnPrimaryContainer = onPrimaryContainer
-            };
-        }
-
-        private static void RgbToHsl(Color c, out double h, out double s, out double l)
-        {
-            double r = c.R / 255.0, g = c.G / 255.0, b = c.B / 255.0;
-            double max = Math.Max(r, Math.Max(g, b));
-            double min = Math.Min(r, Math.Min(g, b));
-            double dl = max - min;
-            l = (max + min) / 2;
-            if (dl < 1e-6) { h = 0; s = 0; }
-            else
-            {
-                s = l > 0.5 ? dl / (2 - max - min) : dl / (max + min);
-                if (max == r) h = (g - b) / dl + (g < b ? 6 : 0);
-                else if (max == g) h = (b - r) / dl + 2;
-                else h = (r - g) / dl + 4;
-                h *= 60;
-                if (h < 0) h += 360;
-            }
-            s *= 100; l *= 100;
-        }
-
-        private static Color HslToColor(double h, double s, double l)
-        {
-            s /= 100; l /= 100;
-            double c = (1 - Math.Abs(2 * l - 1)) * s;
-            double x = c * (1 - Math.Abs((h / 60) % 2 - 1));
-            double m = l - c / 2;
-            double r = 0, g = 0, b = 0;
-            if (h < 60) { r = c; g = x; }
-            else if (h < 120) { r = x; g = c; }
-            else if (h < 180) { g = c; b = x; }
-            else if (h < 240) { g = x; b = c; }
-            else if (h < 300) { r = x; b = c; }
-            else { r = c; b = x; }
-            int rr = ClampByte((r + m) * 255);
-            int gg = ClampByte((g + m) * 255);
-            int bb = ClampByte((b + m) * 255);
-            return Color.FromArgb(255, (byte)rr, (byte)gg, (byte)bb);
-        }
-
-        private static int ClampByte(double v)
-        {
-            if (v < 0) return 0;
-            if (v > 255) return 255;
-            return (int)Math.Round(v);
         }
 
         // ---- 桥接消息模型 ----

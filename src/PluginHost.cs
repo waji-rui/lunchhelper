@@ -183,7 +183,7 @@ namespace LunchHelper
             return int.TryParse(part, out m) ? m : 1;
         }
 
-        /// <summary>插件要求的 apiVersion 是否与当前宿主兼容（旧版本插件向后兼容）。</summary>
+        /// <summary>插件要求的 apiVersion 是否与当前宿主兼容（向后兼容）。</summary>
         private static bool IsApiVersionCompatible(string v)
         {
             return MajorVersion(v) <= MajorVersion(CurrentApiVersion);

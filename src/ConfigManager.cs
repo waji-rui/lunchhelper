@@ -197,8 +197,7 @@ namespace LunchHelper
             }
             else if (PasswordIterations <= 0)
             {
-                // Legacy config: hash was derived with 100k iterations and the count
-                // was not stored. Keep verifying at 100k so existing passwords still work.
+                // 旧配置未存储迭代次数，沿用 100k 以保证旧密码可验证。
                 PasswordIterations = 100000;
             }
             if (Slogan == null) Slogan = "";

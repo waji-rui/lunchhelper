@@ -182,7 +182,7 @@ namespace LunchHelper
             // 避免「先以小尺寸初始化、后再放大到全屏」导致 WebView2 合成层不刷新而空白。
         }
 
-        /// <summary>清理上一轮启动残留的临时 UDF 目录（含旧版无 GUID 的 LockWebView2），
+        /// <summary>清理上一轮启动残留的临时 UDF 目录，
         /// 避免磁盘无限堆积；当前启动使用的 _udf 自身不动。被残留浏览器进程占用时删除会失败，忽略即可，
         /// 下一轮启动会再次尝试清理。</summary>
         private void CleanStaleUdfDirs()
@@ -532,9 +532,8 @@ namespace LunchHelper
                 bounds = Rectangle.Union(bounds, s.Bounds);
             this.Bounds = bounds;
             // 注意：WebView2 初始化推迟到 OnShown（窗体真正可见后）执行。
-            // 经验证 OnShown 时父 HWND 已有效（IsWindow=True）却仍偶发 E_INVALIDARG——
-            // 真因为提权自动化工具以 Job+uiAccess+高完整性 启动本进程，WebView2 控制器创建在该环境下
-            // 不稳定；而 WS_EX_TOPMOST 父窗口会显著抬高创建失败率，故创建阶段本窗体不带 WS_EX_TOPMOST。
+            // OnShown 时父 HWND 已有效，但该环境下 WebView2 控制器创建仍偶发 E_INVALIDARG；
+            // WS_EX_TOPMOST 父窗口会显著抬高创建失败率，故创建阶段本窗体不带 WS_EX_TOPMOST。
             // 渲染成功后再由 EnableLockTopmost 按 uiAccess 环境启用真置顶（见该方法与 BringToFrontSafe）。
         }
 

@@ -15,7 +15,6 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 using System;
-using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
@@ -46,22 +45,6 @@ namespace LunchHelper
             using (var s = asm.GetManifestResourceStream(name))
             using (var r = new StreamReader(s))
                 return r.ReadToEnd();
-        }
-
-        /// <summary>
-        /// 读取页面骨架（内嵌资源），并将其中的占位符按 replacements 替换为对应内嵌资源内容。
-        /// replacements：键为页面里的占位符字符串（如 "/*CSS_TOKENS*/"），值为资源后缀（如 "ui.tokens.css"）。
-        /// </summary>
-        internal static string BuildHtml(Assembly asm, string pageResource, Dictionary<string, string> replacements)
-        {
-            string html = ReadEmbedded(asm, pageResource);
-            if (html == null) return FallbackHtml();
-            foreach (var kv in replacements)
-            {
-                string content = ReadEmbedded(asm, kv.Value) ?? "";
-                html = html.Replace(kv.Key, content);
-            }
-            return html;
         }
 
         /// <summary>资源缺失时的兜底页面（不白屏，给出可读提示）。</summary>
@@ -122,11 +105,11 @@ namespace LunchHelper
             return sb.ToString();
         }
 
-        private static string ColorToHex(Color c) =>
+        internal static string ColorToHex(Color c) =>
             "#" + c.R.ToString("X2") + c.G.ToString("X2") + c.B.ToString("X2");
 
-        /// <summary>MD3 暗色主题整套角色色板（由 source color 生成）。算法与 ConfigForm 一致。</summary>
-        private sealed class Md3Scheme
+        /// <summary>MD3 暗色主题整套角色色板（由 source color 生成）。配置页与锁屏页共用此实现。</summary>
+        internal sealed class Md3Scheme
         {
             public Color Surface, OnSurface, SurfaceContainer, SurfaceContainerHigh, SurfaceContainerHighest,
                          SurfaceVariant, OnSurfaceVariant, Outline,
@@ -135,10 +118,10 @@ namespace LunchHelper
 
         /// <summary>
         /// 按 Material Design 3 官方暗色 tone 角色映射，从源色（Windows 强调色）生成整套配色。
-        /// 与 ConfigForm.GenerateMd3DarkScheme 同源；HSL-L 近似 tone 阶梯（surface≈L11 / container≈L13 /
-        /// high≈L18 / highest=L22 / variant=L30），对主题化已足够。
+        /// HSL-L 近似 tone 阶梯（surface≈L11 / container≈L13 / high≈L18 / highest=L22 / variant=L30），
+        /// 对主题化已足够。
         /// </summary>
-        private static Md3Scheme GenerateMd3DarkScheme(Color source)
+        internal static Md3Scheme GenerateMd3DarkScheme(Color source)
         {
             RgbToHsl(source, out double h, out double s, out _);
             Color primary = HslToColor(h, s, 80);
@@ -168,7 +151,7 @@ namespace LunchHelper
             };
         }
 
-        private static void RgbToHsl(Color c, out double h, out double s, out double l)
+        internal static void RgbToHsl(Color c, out double h, out double s, out double l)
         {
             double r = c.R / 255.0, g = c.G / 255.0, b = c.B / 255.0;
             double max = Math.Max(r, Math.Max(g, b));
@@ -188,7 +171,7 @@ namespace LunchHelper
             s *= 100; l *= 100;
         }
 
-        private static Color HslToColor(double h, double s, double l)
+        internal static Color HslToColor(double h, double s, double l)
         {
             s /= 100; l /= 100;
             double c = (1 - Math.Abs(2 * l - 1)) * s;
@@ -207,7 +190,7 @@ namespace LunchHelper
             return Color.FromArgb(255, (byte)rr, (byte)gg, (byte)bb);
         }
 
-        private static int ClampByte(double v)
+        internal static int ClampByte(double v)
         {
             if (v < 0) return 0;
             if (v > 255) return 255;

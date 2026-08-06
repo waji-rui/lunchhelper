@@ -45,7 +45,6 @@ namespace LunchHelper
     static class Program
     {
         private const string AppMutexName = "Global\\LunchHelper_App_Instance";
-        private const string GuardianMutexName = "Global\\LunchHelper_Guardian_Instance";
 
         [STAThread]
         static void Main(string[] args)

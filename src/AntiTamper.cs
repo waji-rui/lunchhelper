@@ -16,14 +16,12 @@
 
 using System;
 using System.Runtime.InteropServices;
-using System.Windows.Forms;
 
 namespace LunchHelper
 {
     /// <summary>
     /// 防撬锁：低级键盘钩子屏蔽退出/切换类快捷键（含 Ctrl+Shift+Esc 任务管理器快捷键）。
-    /// 真正的 uiAccess 置顶窗口覆盖所有普通窗口（含任务管理器），故不再通过注册表禁用任务管理器，
-    /// 以免触发第三方安全软件的 HIPS 拦截弹窗。
+        /// 真正的 uiAccess 置顶窗口覆盖所有普通窗口（含任务管理器），无需通过注册表额外禁用。
     /// 注意：Ctrl+Alt+Del（SAS 安全序列）属系统级，普通程序无法拦截，这是 Windows 的设计限制。
     /// </summary>
     internal static class AntiTamper

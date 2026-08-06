@@ -27,7 +27,6 @@ namespace LunchHelper
     /// </summary>
     internal static class NativeMethods
     {
-        public const int SW_RESTORE = 9;
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private const uint SWP_NOMOVE = 0x0001;
         private const uint SWP_NOSIZE = 0x0002;
