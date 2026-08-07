@@ -133,6 +133,7 @@ LunchHelper/
 │   ├── ConfigForm.cs       # 触控配置界面
 │   └── LockForm.cs         # 锁屏主窗体（状态机、倒计时、防暴破）
 ├── config.json             # 运行时生成（与 exe 同目录）
+├── docs-archive/           # 研究/归档文档（含架构迁移研究等）
 └── logs/                   # 日志目录（运行时生成）
 ```
 
