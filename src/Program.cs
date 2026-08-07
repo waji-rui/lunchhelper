@@ -79,6 +79,21 @@ namespace LunchHelper
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += OnThreadException;
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+
+            // 崩溃测试诊断：仅当显式传入 -crashtest 时，在 UI 消息循环启动后的首个 Idle 事件
+            // 抛出一个测试异常，用于验证全局未处理异常能否被崩溃弹窗捕获（正常启动不受影响）。
+            if (Contains(args, "-crashtest"))
+            {
+                Logger.Info("崩溃测试模式：UI 线程即将抛出测试异常以验证崩溃弹窗");
+                bool crashTestFired = false;
+                Application.Idle += (s, e) =>
+                {
+                    if (crashTestFired) return;
+                    crashTestFired = true;
+                    throw new InvalidOperationException("这是崩溃测试故意抛出的异常，用于验证崩溃报告弹窗（可忽略或重启）。");
+                };
+            }
+
             StartupTimer.Start();   // 启动毫秒级计时（Logger 尚未就绪，但 Stopwatch 已开始；最早落盘节点约为 Logger.Init 完成）
 
             // restartApp 拉起的新进程会先等待旧进程退出，避免单实例互斥冲突
