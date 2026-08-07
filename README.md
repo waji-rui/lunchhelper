@@ -129,7 +129,7 @@ LunchHelper/
 │   ├── AntiTamper.cs       # 键盘钩子屏蔽快捷键（Win/Alt+Tab/Ctrl+Esc 等）
 │   ├── Guardian.cs         # 守护进程（监视并重启锁屏）
 │   ├── NumericPad.cs       # 自绘大字号数字触摸键盘
-│   ├── AboutForm.cs        # 关于窗口
+│   ├── CrashReportForm.cs  # 崩溃报告弹窗（未处理异常展示）
 │   ├── ConfigForm.cs       # 触控配置界面
 │   └── LockForm.cs         # 锁屏主窗体（状态机、倒计时、防暴破）
 ├── config.json             # 运行时生成（与 exe 同目录）

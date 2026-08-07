@@ -31,17 +31,40 @@ namespace LunchHelper
 
         public static void Run(string[] args)
         {
-            _mutex = new Mutex(true, MutexName, out bool created);
+            bool created = false;
+            try
+            {
+                _mutex = new Mutex(true, MutexName, out created);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("创建守护互斥体失败: " + ex.Message);
+                return;
+            }
             if (!created)
             {
                 // 已存在守护进程，直接退出，避免重复
+                try { _mutex?.Dispose(); } catch { }
                 return;
             }
 
             int pid = -1;
-            foreach (var a in args)
+            bool found = false;
+            for (int i = 0; i < args.Length - 1; i++)
             {
-                if (int.TryParse(a, out int p)) { pid = p; break; }
+                if (string.Equals(args[i], "-guardian", StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(args[i + 1], out int p))
+                {
+                    pid = p;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found || pid <= 0)
+            {
+                // 缺少合法 pid 时不应无限拉起锁屏，直接退出
+                try { _mutex?.ReleaseMutex(); _mutex?.Dispose(); } catch { }
+                return;
             }
 
             Logger.Init(ConfigManager.Load().LogRetentionDays, false);
@@ -51,7 +74,7 @@ namespace LunchHelper
             {
                 Thread.Sleep(1000);
 
-                if (pid <= 0 || !ProcessExists(pid))
+                if (!ProcessExists(pid))
                 {
                     if (LockSignal.IsUnlocked())
                     {
@@ -84,12 +107,13 @@ namespace LunchHelper
             }
 
             Logger.Info("守护进程结束");
-            try { _mutex.ReleaseMutex(); } catch { }
+            try { _mutex?.ReleaseMutex(); } catch { }
+            try { _mutex?.Dispose(); } catch { }
         }
 
         private static bool ProcessExists(int pid)
         {
-            try { return Process.GetProcessById(pid) != null; }
+            try { using (var p = Process.GetProcessById(pid)) return true; }
             catch { return false; }
         }
     }

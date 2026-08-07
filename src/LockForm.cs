@@ -302,7 +302,7 @@ namespace LunchHelper
 
         private static bool ProcessExists(int pid)
         {
-            try { return Process.GetProcessById(pid) != null; }
+            try { using (var p = Process.GetProcessById(pid)) return true; }
             catch { return false; }
         }
 

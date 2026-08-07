@@ -75,6 +75,10 @@ namespace LunchHelper
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // 全局未处理异常捕获：先注册，再开始任何业务逻辑，确保后续崩溃能被弹窗捕获。
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += OnThreadException;
+            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
             StartupTimer.Start();   // 启动毫秒级计时（Logger 尚未就绪，但 Stopwatch 已开始；最早落盘节点约为 Logger.Init 完成）
 
             // restartApp 拉起的新进程会先等待旧进程退出，避免单实例互斥冲突
@@ -83,8 +87,14 @@ namespace LunchHelper
             {
                 try
                 {
-                    var oldProc = Process.GetProcessById(waitPid);
-                    oldProc.WaitForExit(8000);
+                    using (var oldProc = Process.GetProcessById(waitPid))
+                    {
+                        oldProc.WaitForExit(8000);
+                        // 额外轮询 3 秒，防止 WaitForExit 超时后旧进程仍在释放互斥体。
+                        var sw = Stopwatch.StartNew();
+                        while (sw.ElapsedMilliseconds < 3000 && !oldProc.HasExited)
+                            Thread.Sleep(100);
+                    }
                 }
                 catch { }
             }
@@ -194,7 +204,16 @@ namespace LunchHelper
             StartupTimer.Mark("插件清理/安装完成");
 
             // 单实例：仅对用户启动的模式（配置 / 锁屏）做互斥约束
-            using (var mutex = new Mutex(true, AppMutexName, out bool created))
+            Mutex appMutex = null;
+            bool created = false;
+            try { appMutex = new Mutex(true, AppMutexName, out created); }
+            catch (Exception ex)
+            {
+                Logger.Error("创建单实例互斥体失败: " + ex.Message + "，降级为无互斥启动");
+                created = true; // 允许继续，最多出现多实例，但不至于整体崩溃
+            }
+
+            try
             {
                 if (!created)
                 {
@@ -207,7 +226,7 @@ namespace LunchHelper
                         else { FocusExisting(); return; }
                     }
                     // 无其它存活实例 -> 视为废弃互斥体，尝试接管其所有权后继续运行。
-                    try { mutex.WaitOne(); }
+                    try { appMutex?.WaitOne(); }
                     catch (AbandonedMutexException) { /* 上一个持有者已被终止，正常接管 */ }
                 }
 
@@ -230,7 +249,12 @@ namespace LunchHelper
                             : (Form)new LockForm(debug, guardianPid);
                         if (!webOk) Logger.Warn("WebView2 不可用或目录不可写，降级为原生锁屏");
                         StartupTimer.Mark("即将运行Application.Run(锁屏窗体)");
-                        Application.Run(lockForm);
+                        try { Application.Run(lockForm); }
+                        catch (Exception ex)
+                        {
+                            Logger.Error("锁屏窗体运行期未处理异常: " + ex);
+                            try { using (var dlg = new CrashReportForm(ex, true)) { dlg.ShowDialog(); } } catch { }
+                        }
                     }
                     finally
                     {
@@ -249,9 +273,12 @@ namespace LunchHelper
                     {
                         Logger.Info("启动配置界面");
                     }
-                    try
+                    StartupTimer.Mark("即将运行Application.Run(配置窗体)");
+                    try { Application.Run(new ConfigForm(debug)); }
+                    catch (Exception ex)
                     {
-                        Application.Run(new ConfigForm(debug));
+                        Logger.Error("配置窗体运行期未处理异常: " + ex);
+                        try { using (var dlg = new CrashReportForm(ex, true)) { dlg.ShowDialog(); } } catch { }
                     }
                     finally
                     {
@@ -259,6 +286,65 @@ namespace LunchHelper
                     }
                 }
             }
+            finally
+            {
+                try { appMutex?.ReleaseMutex(); } catch { }
+                try { appMutex?.Dispose(); } catch { }
+            }
+        }
+
+        // ---- 全局未处理异常与崩溃弹窗 ----
+
+        /// <summary>UI 线程未处理异常：弹出崩溃弹窗，用户可选择忽略/退出/重启。</summary>
+        private static void OnThreadException(object sender, ThreadExceptionEventArgs e)
+        {
+            try { Logger.Error("UI 线程未处理异常: " + e.Exception); } catch { }
+            try
+            {
+                using (var dlg = new CrashReportForm(e.Exception, false))
+                {
+                    var result = dlg.ShowDialog();
+                    if (result == DialogResult.Retry) RestartSelf();
+                    else if (result == DialogResult.Abort) Environment.Exit(1);
+                    // Ignore 继续运行
+                }
+            }
+            catch { Environment.Exit(1); }
+        }
+
+        /// <summary>非 UI 线程未处理异常：通常是致命错误，强制退出或重启。</summary>
+        private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            var ex = e.ExceptionObject as Exception ?? new Exception(e.ExceptionObject?.ToString() ?? "未知非托管异常");
+            try { Logger.Error("非 UI 线程未处理异常" + (e.IsTerminating ? "（进程即将终止）" : "") + ": " + ex); } catch { }
+            if (!e.IsTerminating)
+            {
+                try
+                {
+                    using (var dlg = new CrashReportForm(ex, true))
+                    {
+                        var result = dlg.ShowDialog();
+                        if (result == DialogResult.Retry) RestartSelf();
+                    }
+                }
+                catch { }
+            }
+            Environment.Exit(1);
+        }
+
+        /// <summary>重新启动自身（无参数），用于崩溃弹窗的“重启应用”。</summary>
+        private static void RestartSelf()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = Application.ExecutablePath,
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+            Environment.Exit(0);
         }
 
         private static bool Contains(string[] args, string target)
@@ -496,13 +582,18 @@ namespace LunchHelper
         {
             try
             {
-                var current = Process.GetCurrentProcess();
-                foreach (var p in Process.GetProcessesByName(current.ProcessName))
+                using (var current = Process.GetCurrentProcess())
                 {
-                    if (p.Id != current.Id && p.MainWindowHandle != IntPtr.Zero)
+                    foreach (var p in Process.GetProcessesByName(current.ProcessName))
                     {
-                        NativeMethods.SetForegroundWindow(p.MainWindowHandle);
-                        break;
+                        using (p)
+                        {
+                            if (p.Id != current.Id && p.MainWindowHandle != IntPtr.Zero)
+                            {
+                                NativeMethods.SetForegroundWindow(p.MainWindowHandle);
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -513,11 +604,16 @@ namespace LunchHelper
         {
             try
             {
-                var self = Process.GetCurrentProcess();
-                foreach (var p in Process.GetProcessesByName(self.ProcessName))
+                using (var self = Process.GetCurrentProcess())
                 {
-                    if (p.Id != self.Id && p.MainWindowHandle != IntPtr.Zero)
-                        return true;
+                    foreach (var p in Process.GetProcessesByName(self.ProcessName))
+                    {
+                        using (p)
+                        {
+                            if (p.Id != self.Id && p.MainWindowHandle != IntPtr.Zero)
+                                return true;
+                        }
+                    }
                 }
             }
             catch { }

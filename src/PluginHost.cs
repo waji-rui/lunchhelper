@@ -512,6 +512,20 @@ namespace LunchHelper
             catch { return null; }
         }
 
+        /// <summary>安全读取插件目录内的文本文件，防止 plugin.json 中的相对路径穿越出插件目录。</summary>
+        private static string SafeReadTextUnder(string baseDir, string relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath)) return null;
+            try
+            {
+                string full = Path.GetFullPath(Path.Combine(baseDir, relativePath));
+                string baseNorm = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (!full.StartsWith(baseNorm, StringComparison.OrdinalIgnoreCase)) return null;
+                return File.Exists(full) ? File.ReadAllText(full) : null;
+            }
+            catch { return null; }
+        }
+
         private static string ReadZipEntryText(ZipArchive za, string fileName)
         {
             foreach (var e in za.Entries)
@@ -890,20 +904,14 @@ namespace LunchHelper
             {
                 if (!rp.Loadable || rp.Manifest == null) continue;
                 LoadedAtStartup.Add(rp.Manifest.Id);
-                string iconHtml = null;
-                if (!string.IsNullOrWhiteSpace(rp.Manifest.Icon))
-                {
-                    string iconPath = Path.Combine(rp.Dir, rp.Manifest.Icon);
-                    if (File.Exists(iconPath)) iconHtml = File.ReadAllText(iconPath);
-                }
+                string iconHtml = SafeReadTextUnder(rp.Dir, rp.Manifest.Icon);
                 var info = new PluginInfo { Id = rp.Manifest.Id, Name = rp.Manifest.Name, Icon = iconHtml, Pages = new List<PluginPage>() };
                 if (rp.Manifest.Pages != null)
                 {
                     foreach (var pm in rp.Manifest.Pages)
                     {
                         if (pm == null || string.IsNullOrWhiteSpace(pm.Src)) continue;
-                        string htmlPath = Path.Combine(rp.Dir, pm.Src);
-                        string html = File.Exists(htmlPath) ? File.ReadAllText(htmlPath) : "";
+                        string html = SafeReadTextUnder(rp.Dir, pm.Src) ?? "";
                         info.Pages.Add(new PluginPage { Id = pm.Id, Title = pm.Title ?? pm.Id, Html = html });
                     }
                 }

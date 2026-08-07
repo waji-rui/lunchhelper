@@ -64,6 +64,7 @@
     <Compile Include="src\AntiTamper.cs" />
     <Compile Include="src\Guardian.cs" />
     <Compile Include="src\NumericPad.cs" />
+    <Compile Include="src\CrashReportForm.cs" />
     <Compile Include="src\ConfigForm.cs" />
     <Compile Include="src\LockForm.cs" />
     <Compile Include="src\PluginHost.cs" />

@@ -21,6 +21,7 @@ using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Windows.Forms;
 
 namespace LunchHelper
 {
@@ -37,13 +38,19 @@ namespace LunchHelper
         {
             get
             {
-                var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                // 与 Logger/WebUiShell/LockFormWeb 保持一致，统一使用 Application.ExecutablePath，
+                // 避免单文件发布或 shadow copy 场景下 Assembly.Location 与真实 exe 路径不一致。
+                var dir = Path.GetDirectoryName(Application.ExecutablePath);
                 return Path.Combine(dir, "config.json");
             }
         }
 
+        /// <summary>标志上一次 Load 是否因配置损坏而使用了临时随机密码。</summary>
+        public static bool LastLoadCorrupted { get; private set; }
+
         public static Config Load()
         {
+            LastLoadCorrupted = false;
             try
             {
                 if (File.Exists(ConfigPath))
@@ -62,9 +69,33 @@ namespace LunchHelper
             }
             catch (Exception ex)
             {
-                Logger.Error("读取配置失败，回退默认配置: " + ex.Message);
+                LastLoadCorrupted = true;
+                Logger.Error("读取配置失败，已生成临时随机密码（倒计时结束后自动解锁）: " + ex.Message);
+                return CreateCorruptedFallback();
             }
             return Default();
+        }
+
+        /// <summary>
+        /// 配置损坏时的 fail-closed 回退：生成随机且不落盘的应急密码。
+        /// 无人能猜测该密码，但锁屏主倒计时归零后仍会安全解锁，避免用户被永久锁在屏幕外。
+        /// </summary>
+        private static Config CreateCorruptedFallback()
+        {
+            var cfg = new Config
+            {
+                LockSeconds = 10,
+                LogRetentionDays = 14,
+                Slogan = "",
+                PinLength = 6,
+                EnableUiAccess = false
+            };
+            string hash, salt;
+            ComputePasswordHash(Guid.NewGuid().ToString("N"), out hash, out salt);
+            cfg.PasswordHash = hash;
+            cfg.PasswordSalt = salt;
+            cfg.PasswordIterations = DefaultIterations;
+            return cfg;
         }
 
         public static void Save(Config cfg)
@@ -200,6 +231,8 @@ namespace LunchHelper
                 // 旧配置未存储迭代次数，沿用 100k 以保证旧密码可验证。
                 PasswordIterations = 100000;
             }
+            // 防止恶意或异常配置用超大迭代次数耗尽 CPU（PBKDF2 被调用时）。
+            if (PasswordIterations > 1000000) PasswordIterations = 1000000;
             if (Slogan == null) Slogan = "";
             if (PinLength < ConfigManager.MinPinLength || PinLength > ConfigManager.MaxPinLength) PinLength = 6;
         }

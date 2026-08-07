@@ -76,7 +76,10 @@ namespace LunchHelper
             {
                 if (_hook != IntPtr.Zero) return;
                 _proc = HookCallback;
-                _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
+                IntPtr hMod = GetModuleHandle(null);
+                _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, hMod, 0);
+                if (_hook == IntPtr.Zero)
+                    Logger.Warn("安装低级键盘钩子失败，防撬锁能力可能未生效（低完整性/UIPI 环境常见）");
             }
         }
 
