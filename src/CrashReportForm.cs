@@ -26,11 +26,16 @@ namespace LunchHelper
     /// <summary>
     /// 崩溃报告弹窗：仿 ClassIsland 风格，集中展示未捕获异常信息并提供复制/反馈/忽略/退出/重启操作。
     /// 仅在发生未处理异常时弹出，平时不实例化。
+    /// 布局采用 TableLayoutPanel 声明式网格（与 WPF/Avalonia 思路一致），不在 InitializeComponent 中
+    /// 手工计算坐标，彻底规避不同 DPI/字体下按钮文字被截断、标题与描述重叠等 WinForms 老问题。
     /// </summary>
     internal partial class CrashReportForm : Form
     {
         private readonly Exception _exception;
         private readonly bool _critical;
+        // 关键异常时“忽略错误”的位置会被“调试”按钮替换
+        private Button _ignoreBtn;
+        private Button _debugBtn;
 
         public CrashReportForm(Exception ex, bool critical)
         {
@@ -50,11 +55,24 @@ namespace LunchHelper
             MinimizeBox = false;
             BackColor = Color.FromArgb(0x2D, 0x2D, 0x30);
             ForeColor = Color.White;
+            Font = new Font("Segoe UI", 10F);
             Padding = new Padding(0);
 
-            const int margin = 24;
-            int clientW = ClientSize.Width;
-            int contentW = clientW - margin * 2;
+            // 主网格：单列，行依次为 标题 / 图标+描述 / 详情(占满) / 关键提示 / 按钮
+            var tlp = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 5,
+                Padding = new Padding(24, 20, 24, 16),
+                BackColor = Color.FromArgb(0x2D, 0x2D, 0x30)
+            };
+            tlp.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // 标题
+            tlp.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // 图标 + 描述
+            tlp.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));   // 详情（吸收剩余空间）
+            tlp.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // 关键提示条
+            tlp.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // 按钮行
+            Controls.Add(tlp);
 
             // 标题
             var title = new Label
@@ -62,69 +80,45 @@ namespace LunchHelper
                 Text = "崩溃啦！（T_T）",
                 Font = new Font("Segoe UI", 20F, FontStyle.Bold),
                 ForeColor = Color.White,
-                AutoSize = true,
-                Location = new Point(margin, 20)
+                Dock = DockStyle.Top,
+                AutoSize = true
             };
-            Controls.Add(title);
+            tlp.Controls.Add(title, 0, 0);
 
-            // 红色感叹号图标（自绘，避免依赖外部资源文件）
-            const int iconSize = 48;
+            // 图标 + 描述：嵌套 2 列表格（图标固定宽，描述占满）
+            var head = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                ColumnCount = 2,
+                RowCount = 1,
+                Padding = new Padding(0, 12, 0, 12),
+                BackColor = Color.Transparent
+            };
+            head.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56F));
+            head.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            head.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
             var iconPanel = new Panel
             {
-                Size = new Size(iconSize, iconSize),
-                Location = new Point(margin, 76),
+                Size = new Size(48, 48),
+                Dock = DockStyle.Left,
                 BackColor = Color.Transparent
             };
             iconPanel.Paint += (s, e) => DrawExclamation(e.Graphics);
-            Controls.Add(iconPanel);
+            head.Controls.Add(iconPanel, 0, 0);
 
-            // 说明文本：自动换行、自动高度，避免截断或重叠
-            int descX = margin + iconSize + 12;
-            int descW = clientW - descX - margin;
             var desc = new Label
             {
                 Text = "LunchHelper 碰到了严重错误而无法继续运行。您可以保存下方的错误信息并向他人寻求帮助。如果您认为这是由软件本身的错误所致，请点击下方【反馈问题】按钮。",
                 Font = new Font("Segoe UI", 10F),
                 ForeColor = Color.FromArgb(0xE0, 0xE0, 0xE0),
-                Location = new Point(descX, 76),
-                Size = new Size(descW, 64),
-                MaximumSize = new Size(descW, 0),
-                AutoSize = true,
-                TextAlign = ContentAlignment.TopLeft
-            };
-            Controls.Add(desc);
-
-            // 关键异常提示条（默认折叠；Dock.Bottom 会自然与按钮面板上下堆叠）
-            var criticalPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 0,
-                BackColor = Color.FromArgb(0xC5, 0x1E, 0x1E),
-                Padding = new Padding(16, 10, 16, 10)
-            };
-            var criticalLabel = new Label
-            {
                 Dock = DockStyle.Fill,
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9.5F),
-                Text = "这个异常是无法被忽略的关键异常，您只能重启或退出应用。很抱歉对您的使用造成不便。",
-                TextAlign = ContentAlignment.MiddleLeft
+                AutoSize = true
             };
-            criticalPanel.Controls.Add(criticalLabel);
-            Controls.Add(criticalPanel);
+            head.Controls.Add(desc, 1, 0);
+            tlp.Controls.Add(head, 0, 1);
 
-            // 底部按钮面板
-            var btnPanel = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 72,
-                BackColor = Color.FromArgb(0x2D, 0x2D, 0x30),
-                Padding = new Padding(16, 14, 16, 14)
-            };
-            Controls.Add(btnPanel);
-
-            // 异常详情文本框：锚定四周，随窗体缩放
-            int detailTop = Math.Max(160, desc.Bottom + 16);
+            // 异常详情文本框：锚定填满单元格，随窗体缩放
             var detailBox = new TextBox
             {
                 Name = "detailBox",
@@ -136,43 +130,55 @@ namespace LunchHelper
                 ForeColor = Color.FromArgb(0xE0, 0xE0, 0xE0),
                 Font = new Font("Consolas", 9.5F),
                 Text = BuildDetail(),
-                Location = new Point(margin, detailTop),
-                Size = new Size(contentW, ClientSize.Height - detailTop - btnPanel.Height - criticalPanel.Height - 8),
-                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+                Dock = DockStyle.Fill
             };
-            Controls.Add(detailBox);
+            tlp.Controls.Add(detailBox, 0, 2);
 
-            // 按钮：加宽、加高、加大间距，避免文字截断
-            const int btnW = 120;
-            const int btnH = 36;
-            const int btnGap = 12;
-            int btnY = btnPanel.Height / 2 - btnH / 2;
-            int totalBtnW = btnW * 5 + btnGap * 4;
-            // 按钮面板已 Dock.Bottom 占满窗体宽度，故用窗体客户区宽度计算居中；
-            // 避免在 InitializeComponent 早期读取 btnPanel.ClientSize.Width 可能尚未完成布局的风险。
-            int btnX = (clientW - totalBtnW) / 2;
+            // 关键异常提示条（默认隐藏；AutoSize 行在不可见时不占空间）
+            var criticalPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Visible = false,
+                BackColor = Color.FromArgb(0xC5, 0x1E, 0x1E),
+                Padding = new Padding(12, 8, 12, 8)
+            };
+            var criticalLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9.5F),
+                Text = "这个异常是无法被忽略的关键异常，您只能重启或退出应用。很抱歉对您的使用造成不便。",
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoSize = true
+            };
+            criticalPanel.Controls.Add(criticalLabel);
+            tlp.Controls.Add(criticalPanel, 0, 3);
 
-            // 复制
-            var copyBtn = CreateFlatButton("复制", Color.FromArgb(0x3C, 0x3C, 0x41), btnW, btnH);
-            copyBtn.Location = new Point(btnX, btnY);
+            // 按钮：5 列等分的表格，按钮左右锚定填满单元格，文字居中，彻底消除截断
+            var btnTable = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                ColumnCount = 5,
+                RowCount = 1,
+                Padding = new Padding(0, 12, 0, 0),
+                BackColor = Color.Transparent
+            };
+            for (int i = 0; i < 5; i++)
+                btnTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
+            btnTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var copyBtn = CreateFlatButton("复制");
+            var feedbackBtn = CreateFlatButton("反馈问题");
+            _ignoreBtn = CreateFlatButton("忽略错误");
+            _debugBtn = CreateFlatButton("调试");
+            var exitBtn = CreateFlatButton("退出应用");
+            var restartBtn = CreateFlatButton("重启应用", Color.FromArgb(0x00, 0x78, 0xD4));
+
             copyBtn.Click += (s, e) =>
             {
-                try
-                {
-                    Clipboard.SetText(detailBox.Text);
-                    copyBtn.Text = "已复制";
-                }
-                catch
-                {
-                    copyBtn.Text = "复制失败";
-                }
+                try { Clipboard.SetText(detailBox.Text); copyBtn.Text = "已复制"; }
+                catch { copyBtn.Text = "复制失败"; }
             };
-            btnPanel.Controls.Add(copyBtn);
-            btnX += btnW + btnGap;
-
-            // 反馈问题
-            var feedbackBtn = CreateFlatButton("反馈问题", Color.FromArgb(0x3C, 0x3C, 0x41), btnW, btnH);
-            feedbackBtn.Location = new Point(btnX, btnY);
             feedbackBtn.Click += (s, e) =>
             {
                 try
@@ -185,66 +191,55 @@ namespace LunchHelper
                 }
                 catch { }
             };
-            btnPanel.Controls.Add(feedbackBtn);
-            btnX += btnW + btnGap;
-
-            // 忽略错误（非关键异常可用）
-            var ignoreBtn = CreateFlatButton("忽略错误", Color.FromArgb(0x3C, 0x3C, 0x41), btnW, btnH);
-            ignoreBtn.Location = new Point(btnX, btnY);
-            ignoreBtn.DialogResult = DialogResult.Ignore;
-            btnPanel.Controls.Add(ignoreBtn);
-
-            // 调试（关键异常时替换“忽略错误”）
-            var debugBtn = CreateFlatButton("调试", Color.FromArgb(0x3C, 0x3C, 0x41), btnW, btnH);
-            debugBtn.Location = new Point(btnX, btnY);
-            debugBtn.Visible = false;
-            debugBtn.Click += (s, e) =>
+            _ignoreBtn.DialogResult = DialogResult.Ignore;
+            _debugBtn.Visible = false;
+            _debugBtn.Click += (s, e) =>
             {
                 try { Debugger.Launch(); }
                 catch { }
                 DialogResult = DialogResult.No;
                 Close();
             };
-            btnPanel.Controls.Add(debugBtn);
-            btnX += btnW + btnGap;
-
-            // 退出应用
-            var exitBtn = CreateFlatButton("退出应用", Color.FromArgb(0x3C, 0x3C, 0x41), btnW, btnH);
-            exitBtn.Location = new Point(btnX, btnY);
             exitBtn.DialogResult = DialogResult.Abort;
-            btnPanel.Controls.Add(exitBtn);
-            btnX += btnW + btnGap;
-
-            // 重启应用
-            var restartBtn = CreateFlatButton("重启应用", Color.FromArgb(0x00, 0x78, 0xD4), btnW, btnH);
-            restartBtn.Location = new Point(btnX, btnY);
             restartBtn.DialogResult = DialogResult.Retry;
-            btnPanel.Controls.Add(restartBtn);
+
+            btnTable.Controls.Add(copyBtn, 0, 0);
+            btnTable.Controls.Add(feedbackBtn, 1, 0);
+            // 忽略错误 与 调试 共用第 3 列：普通异常显示“忽略错误”，
+            // 关键异常时 _ignoreBtn 隐藏、_debugBtn 显示（二者仅一个可见，互不干扰）。
+            btnTable.Controls.Add(_ignoreBtn, 2, 0);
+            btnTable.Controls.Add(_debugBtn, 2, 0);
+            btnTable.Controls.Add(exitBtn, 3, 0);
+            btnTable.Controls.Add(restartBtn, 4, 0);
+            tlp.Controls.Add(btnTable, 0, 4);
 
             if (_critical)
             {
-                ignoreBtn.Visible = false;
-                debugBtn.Visible = true;
-                criticalPanel.Height = 44;
+                _ignoreBtn.Visible = false;
+                _debugBtn.Visible = true;
+                criticalPanel.Visible = true;
                 AcceptButton = restartBtn;
             }
             else
             {
-                AcceptButton = ignoreBtn;
+                AcceptButton = _ignoreBtn;
             }
             CancelButton = exitBtn;
         }
 
-        private static Button CreateFlatButton(string text, Color backColor, int width, int height)
+        private static Button CreateFlatButton(string text, Color? backColor = null)
         {
             return new Button
             {
                 Text = text,
                 FlatStyle = FlatStyle.Flat,
-                BackColor = backColor,
+                BackColor = backColor ?? Color.FromArgb(0x3C, 0x3C, 0x41),
                 ForeColor = Color.White,
-                Size = new Size(width, height),
+                Height = 36,
+                // 左右锚定：宽度跟随单元格自动拉伸，高度固定 36；文字居中，零截断
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
                 Font = new Font("Segoe UI", 9.5F),
+                TextAlign = ContentAlignment.MiddleCenter,
                 FlatAppearance = { BorderSize = 0 }
             };
         }

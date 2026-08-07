@@ -120,15 +120,8 @@ namespace LunchHelper
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
                 BackColor = _scheme.Surface,
-                // 方案1：用户数据默认写在 exe 同目录内的独立子目录（绿色便携，删目录即卸载，不向系统目录写任何数据）。
-                // 若 exe 位于 C:\Program Files\ 等受保护目录且无写入权限，会在 InitializeWebView
-                // 里提前检测并引导用户「以管理员运行」或「移到其他目录」，绝不静默回退到 AppData。
-                CreationProperties = new CoreWebView2CreationProperties
-                {
-                    UserDataFolder = Path.Combine(
-                        Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
-                        "webview2_config")
-                }
+                // UserDataFolder 改由 InitializeWebView 经 CoreWebView2Environment.CreateAsync 指定
+                // （支持程序目录内自带 Fixed Version 运行时，兼容 Win10 1803 等未预装 Runtime 的系统）。
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
             Controls.Add(_web);
@@ -147,8 +140,12 @@ namespace LunchHelper
             }
             try
             {
-                // null = 使用默认 Evergreen WebView2 Runtime（不打包引擎）
-                await _web.EnsureCoreWebView2Async(null);
+                // 通过自定义环境初始化：优先使用程序目录内自带的 Fixed Version 运行时（离线、兼容老系统），
+                // 否则回退系统 Evergreen Runtime。UserDataFolder 指向程序自身目录内的 webview2_config。
+                string udf = Path.Combine(
+                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
+                    "webview2_config");
+                await _web.EnsureCoreWebView2Async(await WebUiShell.CreateEnvironmentAsync(udf));
             }
             catch (Exception ex)
             {
@@ -685,7 +682,9 @@ namespace LunchHelper
                 var p = new Panel { Dock = DockStyle.Fill, BackColor = _scheme.Surface, Padding = new Padding(24) };
 
                 string hint = likelyMissingRuntime
-                    ? "本机可能未安装 Microsoft Edge WebView2 运行时。Windows 11 通常已自带；少数 Windows 10 机器需手动安装。"
+                    ? "本机未找到可用的 Microsoft Edge WebView2 运行时。可任选其一：\n" +
+                      "① 从微软下载并安装 WebView2 Runtime（https://go.microsoft.com/fwlink/p/?LinkId=2124703）；\n" +
+                      "② 离线方案：把「WebView2 Fixed Version Runtime」解压到程序目录内的 webview2_runtime\\ 子目录，无需系统安装即可在任意 Windows 版本运行（绿色便携）。"
                     : "程序所在目录没有写入权限（例如 C:\\Program Files）。为保证「删目录即卸载」的绿色体验，用户数据与程序同目录存放。请：① 以管理员身份运行本程序；或 ② 将整个程序目录移到其他位置（如 D:\\LunchHelper）。";
 
                 var lbl = new Label

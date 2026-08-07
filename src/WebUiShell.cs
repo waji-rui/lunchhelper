@@ -21,6 +21,7 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -199,11 +200,48 @@ namespace LunchHelper
 
         // ---------- WebView2 可用预检 ----------
 
-        /// <summary>探测本机能否用 WebView2 承载锁屏：运行时存在且 exe 目录可写（UserDataFolder 需要写权限）。</summary>
+        /// <summary>
+        /// 自带 Fixed Version 运行时目录（位于程序自身目录内，绿色便携、不写系统目录）。
+        /// 若用户把从微软下载的「WebView2 Fixed Version Runtime」解压到本目录，则无需系统安装
+        /// WebView2 Runtime 即可在任意 Windows 版本（含 Win10 1803）开箱即用。
+        /// 目录不存在时返回 null，表示回退到系统 Evergreen Runtime。
+        /// </summary>
+        internal static string FixedRuntimeDir
+        {
+            get
+            {
+                string dir = Path.Combine(
+                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
+                    "webview2_runtime");
+                return Directory.Exists(dir) ? dir : null;
+            }
+        }
+
+        /// <summary>
+        /// 创建 WebView2 环境：优先使用程序目录内自带的 Fixed Version 运行时（离线、兼容老系统），
+        /// 否则回退到系统 Evergreen Runtime。UserDataFolder 始终指向程序自身目录内的缓存子目录。
+        /// </summary>
+        internal static async Task<CoreWebView2Environment> CreateEnvironmentAsync(string userDataFolder)
+        {
+            string fixedDir = FixedRuntimeDir;
+            if (fixedDir != null)
+                return await CoreWebView2Environment.CreateAsync(fixedDir, userDataFolder);
+            return await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+        }
+
+        /// <summary>探测本机能否用 WebView2 承载锁屏：系统 Runtime 或自带 Fixed Version 任一可用，且 exe 目录可写。</summary>
         internal static bool IsWebView2Available()
         {
             try
             {
+                // 自带 Fixed Version 优先：直接探测目录内运行时版本
+                string fixedDir = FixedRuntimeDir;
+                if (fixedDir != null)
+                {
+                    string fv = CoreWebView2Environment.GetAvailableBrowserVersionString(fixedDir);
+                    if (!string.IsNullOrWhiteSpace(fv) && IsExeDirWritable()) return true;
+                }
+                // 回退系统 Evergreen Runtime
                 string ver = CoreWebView2Environment.GetAvailableBrowserVersionString();
                 if (string.IsNullOrWhiteSpace(ver)) return false;
                 return IsExeDirWritable();

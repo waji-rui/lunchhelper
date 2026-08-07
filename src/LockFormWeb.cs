@@ -186,14 +186,8 @@ namespace LunchHelper
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F),
-                // UserDataFolder 指向程序自身目录内的临时缓存子目录（不向系统目录写任何数据），不附加自定义浏览器参数。
-                CreationProperties = new CoreWebView2CreationProperties
-                {
-                    // 每次启动使用独立的、带 GUID 的 UserDataFolder（见构造函数 _udf），位于程序目录内：
-                    // 保证每次都是全新目录，不会被上一次残留的 WebView2 浏览器进程锁住，
-                    // 从根上消除「首次成功、之后全败」。
-                    UserDataFolder = _udf
-                }
+                // UserDataFolder 不再经 CreationProperties 指定，改由 InitializeWebView 通过
+                // CoreWebView2Environment.CreateAsync(fixedDir, _udf) 传入（支持自带 Fixed Version 运行时，兼容老系统）。
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
             Controls.Add(_web);
@@ -251,7 +245,7 @@ namespace LunchHelper
                 // 诊断：与配置页保持一致，使用默认环境（不附加 --no-sandbox/--disable-gpu 等自定义参数），
                 // 以判定「提权/非 Shell 启动」下的空白是否由自定义浏览器参数导致；UserDataFolder 已由
                 // CreationProperties 指定到程序自身目录（始终可写，且退出时清理）。
-                Logger.Debug("锁屏 WebView2 使用默认环境（与配置页一致），不附加自定义浏览器参数");
+                Logger.Debug("锁屏 WebView2 使用自定义环境（自带 Fixed Version 优先），不附加自定义浏览器参数");
                 LogWebState("初始化前");
 
                 // 渲染看门狗：无论 EnsureCoreWebView2Async 卡死还是页面静默空白（ready 永不送达），
@@ -263,7 +257,7 @@ namespace LunchHelper
                     _renderWatchdog.Start();
                 }
 
-                await _web.EnsureCoreWebView2Async(null);
+                await _web.EnsureCoreWebView2Async(await WebUiShell.CreateEnvironmentAsync(_udf));
                 Logger.Info("WebView2 环境创建成功，浏览器版本: " + (_web.CoreWebView2?.Environment?.BrowserVersionString ?? "?"));
                 StartupTimer.Mark("WebView2环境创建成功");
             }
