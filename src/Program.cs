@@ -27,6 +27,30 @@ using System.Windows.Forms;
 namespace LunchHelper
 {
     /// <summary>
+    /// 启动计时（毫秒级诊断）：用于定位「锁屏从启动到可输密码」约 2 秒的耗时分布。
+    /// 纯诊断，不改动任何运行时行为；计时基于进程启动后的 Stopwatch。
+    /// 仅在 Logger 已初始化（_enabled）后才会落盘，故最早可记录的节点约为 Logger.Init 完成点。
+    /// </summary>
+    internal static class StartupTimer
+    {
+        private static readonly Stopwatch _sw = new Stopwatch();
+        private static bool _enabled;
+
+        public static void Start()
+        {
+            _enabled = true;
+            _sw.Restart();
+        }
+
+        public static void Mark(string phase)
+        {
+            if (!_enabled) return;
+            try { Logger.Info("[启动计时] +" + _sw.ElapsedMilliseconds + "ms " + phase); }
+            catch { }
+        }
+    }
+
+    /// <summary>
     /// 程序入口：解析启动参数、按需自提权、单实例互斥、分发运行模式、拉起守护进程。
     ///   无参数        -> 配置界面
     ///   -lock         -> 控制（锁屏）模式
@@ -51,6 +75,7 @@ namespace LunchHelper
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            StartupTimer.Start();   // 启动毫秒级计时（Logger 尚未就绪，但 Stopwatch 已开始；最早落盘节点约为 Logger.Init 完成）
 
             // restartApp 拉起的新进程会先等待旧进程退出，避免单实例互斥冲突
             int waitPid = ExtractRestartWaitPid(ref args);
@@ -70,7 +95,16 @@ namespace LunchHelper
 
             // 日志尽早初始化：提权降级、插件清理/安装等启动早期步骤都可能产生需要排查的日志，
             // 必须在这些逻辑之前就绪，错误才能落到 release/logs。
-            Logger.Init(ConfigManager.Load().LogRetentionDays, debug);
+            // 启动期仅读取一次配置并在后续复用（Logger 初始化、uiAccess 判定共用），
+            // 避免 ConfigManager.Load() 的重复 JSON 反序列化；Load 本身不涉及密码派生（仅 submitCode 时校验）。
+            var cfg = ConfigManager.Load();
+            Logger.Init(cfg.LogRetentionDays, debug);
+            StartupTimer.Mark("Logger初始化完成");
+
+            // 清理旧版遗留于系统目录（%LocalAppData%\LunchHelper）的 WebView2 缓存：自本版起缓存只写在程序自身目录内，
+            // 不再向系统目录写任何数据。仅做一次尽力清理，失败忽略。
+            CleanLegacyExternalCache();
+            StartupTimer.Mark("遗留缓存清理完成");
 
             // -debug 专属：启动瞬间打印完整环境快照，便于一眼判断进程被放在哪个窗口站/桌面。
             if (debug)
@@ -102,8 +136,11 @@ namespace LunchHelper
             // explorer 拉起则正常。故改由 Shell(explorer) 以普通用户上下文在交互式桌面重拉起自身，
             // 复刻“普通权限自动化工具拉起”这一已知可用的上下文，WebView2 即可正常渲染。
             // （此路径会主动放弃 uiAccess 置顶/盖任务管理器，等价于已接受的“降级为普通锁屏”。）
+            // 锁屏模式且已获 uiAccess 特权（如管理员运行的 ClassIsland 拉起）时，当前提权上下文可正常渲染，
+            // 且需保留 uiAccess 令牌以盖住 Win+L，故跳过重拉起，避免双进程拖慢启动并丢失 uiAccess。
+            bool skipRelaunchForLock = lockMode && HasUiAccessPrivilege();
             if (!Contains(args, "-shellrelaunch") && !Contains(args, "-guardian")
-                && NativeMethods.IsProcessElevated() && !IsBenignLauncher())
+                && NativeMethods.IsProcessElevated() && !IsBenignLauncher() && !skipRelaunchForLock)
             {
                 Logger.Warn("检测到由非 Shell 的提权进程拉起(父=" + GetParentProcessName()
                     + ")，转经 Shell 以普通用户上下文在交互式桌面重拉起，规避 WebView2 空白");
@@ -111,13 +148,15 @@ namespace LunchHelper
                 return;
             }
 
+            StartupTimer.Mark("提权判定完成");
+
             // 按需自提权：仅当配置了「启用 UI Access」时才尝试。
             // uiAccess 生效 = 可信签名 +（受保护目录 OR 提权）。
             // 若当前既未提权、也不在受保护目录（如从 Downloads 双击），则自动以管理员
             // 重启用自身（仅弹一次 UAC），从而拿到 uiAccess；已尝试过提权（-elevated）
             // 则不再重复拉起，避免死循环。配置/调试模式不需要 uiAccess，不触发。
             // 用户取消 UAC：静默降级为普通锁屏（不弹窗、不退出）。
-            bool enableUiAccess = ConfigManager.Load().EnableUiAccess;
+            bool enableUiAccess = cfg.EnableUiAccess;
             if (enableUiAccess && NeedsUiAccess(lockMode, guardian) && !Contains(args, "-elevated") && !Contains(args, "-shellrelaunch") && !HasUiAccessPrivilege())
             {
                 try
@@ -152,6 +191,7 @@ namespace LunchHelper
             catch (Exception ex) { Logger.Error("清理待卸载插件失败: " + ex.Message); }
             try { PluginHost.ApplyPendingInstalls(); }
             catch (Exception ex) { Logger.Error("应用待安装插件失败: " + ex.Message); }
+            StartupTimer.Mark("插件清理/安装完成");
 
             // 单实例：仅对用户启动的模式（配置 / 锁屏）做互斥约束
             using (var mutex = new Mutex(true, AppMutexName, out bool created))
@@ -174,6 +214,7 @@ namespace LunchHelper
                 if (lockMode)
                 {
                     Logger.Info("启动锁屏模式" + (debug ? "（调试）" : ""));
+                    StartupTimer.Mark("互斥体获取完成(进入锁屏分支)");
                     Logger.Info("锁屏环境: 窗口站=" + NativeMethods.GetCurrentWindowStationName()
                         + ", 桌面=" + NativeMethods.GetCurrentDesktopName()
                         + ", 提权=" + NativeMethods.IsProcessElevated()
@@ -188,6 +229,7 @@ namespace LunchHelper
                             ? (Form)new LockFormWeb(debug, guardianPid)
                             : (Form)new LockForm(debug, guardianPid);
                         if (!webOk) Logger.Warn("WebView2 不可用或目录不可写，降级为原生锁屏");
+                        StartupTimer.Mark("即将运行Application.Run(锁屏窗体)");
                         Application.Run(lockForm);
                     }
                     finally
@@ -225,6 +267,23 @@ namespace LunchHelper
                 if (string.Equals(a, target, StringComparison.OrdinalIgnoreCase))
                     return true;
             return false;
+        }
+
+        /// <summary>
+        /// 清理旧版遗留在系统目录的 WebView2 缓存（%LocalAppData%\LunchHelper）。
+        /// 自本版起缓存只写在程序自身目录内，故启动时尽力移除旧外部缓存，避免系统目录残留。
+        /// </summary>
+        private static void CleanLegacyExternalCache()
+        {
+            try
+            {
+                string legacy = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "LunchHelper");
+                if (Directory.Exists(legacy))
+                    Directory.Delete(legacy, true);
+            }
+            catch { /* 尽力清理，占用或权限问题忽略 */ }
         }
 
         [DllImport("kernel32.dll")]

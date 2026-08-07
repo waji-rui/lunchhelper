@@ -17,6 +17,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace LunchHelper
 {
@@ -52,7 +53,9 @@ namespace LunchHelper
             _logDir = Path.Combine(baseDir, "logs");
             try { Directory.CreateDirectory(_logDir); } catch { }
             _enabled = debug || retentionDays > 0;
-            if (_enabled && !debug) Rotate();
+            // 过期日志清理与首帧热路径无关，交由线程池后台执行：避免目录内日志文件较多时
+            // 枚举+删除拖慢「深色盖屏」出现时机；该 Task 随进程退出而结束，不在软件结束后残留后台。
+            if (_enabled && !debug) Task.Run((Action)Rotate);
             Info("日志初始化完成 (retentionDays=" + retentionDays + ", debug=" + debug + ")");
         }
 

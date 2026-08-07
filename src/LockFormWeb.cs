@@ -78,6 +78,7 @@ namespace LunchHelper
         // 每次启动使用独立的、带 GUID 的 UserDataFolder（见构造函数）：锁屏为 kiosk 形态无需持久化
         // profile/cookie；核心目的是规避「上一次运行的 WebView2 浏览器子进程残留并锁住同一 UDF」
         // 导致后续启动 CreateCoreWebView2ControllerAsync 抛 E_INVALIDARG（首次成功、之后全败的死相）。
+        // 缓存只写在程序自身目录内（webview2_lock_* 子目录），绝不向系统目录（LocalAppData 等）写任何数据，退出时清理。
         private string _udf;
 
         // 防暴破锁定时长（秒）：错误密码后键盘冻结该时长，期间忽略提交。
@@ -122,11 +123,18 @@ namespace LunchHelper
                 _useFullscreen = true;
                 _useTopmost = true;
             }
-            // 每启动一个全新、未被任何进程占用过的 UDF，彻底规避 UDF 复用导致的初始化失败
+            // 每次启动使用全新的、位于程序自身目录内的 UserDataFolder（webview2_lock_<GUID>）：
+            // 既不向系统目录（如 LocalAppData）写任何缓存，又规避「复用旧 UDF 被上一轮残留浏览器进程锁住」导致的初始化失败。
+            // 退出时由 OnFormClosed 清理本目录；启动时先清理历史残留（均限定在程序目录内）。
             _udf = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "LunchHelper", "LockWebView2_" + Guid.NewGuid().ToString("N"));
-            CleanStaleUdfDirs();
+                Path.GetDirectoryName(Application.ExecutablePath),
+                "webview2_lock_" + Guid.NewGuid().ToString("N"));
+            // 清理历史残留缓存目录（仅限程序目录内的 webview2_lock_*）交由后台线程执行：
+            // 该枚举+递归删除可能随启动次数累积而变慢，若放在首帧热路径会拖慢“深色盖屏”出现时机。
+            // 当前启动使用的 _udf 唯一且不会被其删除（CleanStaleCacheDirs 会跳过自身），后台删不影响正确性；
+            // 该 Task 属本进程内线程池任务，随进程退出而结束，绝不在软件结束后残留后台。
+            Task.Run(() => CleanStaleCacheDirs());
+            EnsureUdfWritable();
             Logger.Info("[诊断] 进程环境: Elevated=" + IsCurrentProcessElevated()
                 + ", 完整性级别=" + GetCurrentIntegrityLevel()
                 + ", uiAccess=" + GetCurrentUiAccess()
@@ -145,6 +153,7 @@ namespace LunchHelper
                 _topTimer.Tick += (s, e) => BringToFrontSafe();
                 _topTimer.Start();
             }
+            StartupTimer.Mark("锁屏窗体构造完成");
         }
 
         /// <summary>探测本机能否用 WebView2 承载锁屏（运行时存在且 exe 目录可写）。</summary>
@@ -163,38 +172,43 @@ namespace LunchHelper
             this.StartPosition = _useFullscreen ? FormStartPosition.Manual : FormStartPosition.CenterScreen;
             this.WindowState = FormWindowState.Normal;
 
+            // WebView2 控件不再于构造期创建（避免 new WebView2() 加载 webviewloader.dll 拖慢「深色盖屏」出现时机）；
+            // 改为 OnShown 时由 EnsureWebViewControl() 惰性创建，与「深色窗体先盖屏」解耦——盖屏更早，WebView2 冷启动与之重叠。
+        }
+
+        /// <summary>惰性创建 WebView2 控件（不再于 InitializeComponent 占用构造期）：
+        /// 仅设置控件属性并挂接初始化完成事件，不触发 EnsureCoreWebView2Async（那一步在 InitializeWebView 进行）。
+        /// 延迟创建使「深色窗体构造」更快完成、更早盖屏，WebView2 加载与其重叠，不引入任何后台进程、不写程序目录外缓存。</summary>
+        private void EnsureWebViewControl()
+        {
+            if (_web != null) return;
             _web = new WebView2
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(0x1C, 0x1B, 0x1F),
-                // 与配置页一致：UserDataFolder 指向 LocalAppData（始终可写），不附加自定义浏览器参数。
+                // UserDataFolder 指向程序自身目录内的临时缓存子目录（不向系统目录写任何数据），不附加自定义浏览器参数。
                 CreationProperties = new CoreWebView2CreationProperties
                 {
-                    // 每次启动使用独立的、带 GUID 的 UserDataFolder（见构造函数 _udf）：
-                    // 既与配置页(exe 目录)不同（避免同进程双 WebView2 撞 UDF），又保证每次都是全新目录，
-                    // 不会被上一次残留的 WebView2 浏览器进程锁住，从根上消除「首次成功、之后全败」。
+                    // 每次启动使用独立的、带 GUID 的 UserDataFolder（见构造函数 _udf），位于程序目录内：
+                    // 保证每次都是全新目录，不会被上一次残留的 WebView2 浏览器进程锁住，
+                    // 从根上消除「首次成功、之后全败」。
                     UserDataFolder = _udf
                 }
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
             Controls.Add(_web);
             _web.Visible = false;   // 初始化阶段隐藏，窗体先显深色底色；暗色页面绘制完成（ready）后再首显，避免首帧白闪
-            // 注意：InitializeWebView 推迟到 OnHandleCreated（窗体尺寸确定后）再调用，
-            // 避免「先以小尺寸初始化、后再放大到全屏」导致 WebView2 合成层不刷新而空白。
         }
 
-        /// <summary>清理上一轮启动残留的临时 UDF 目录，
-        /// 避免磁盘无限堆积；当前启动使用的 _udf 自身不动。被残留浏览器进程占用时删除会失败，忽略即可，
-        /// 下一轮启动会再次尝试清理。</summary>
-        private void CleanStaleUdfDirs()
+        /// <summary>清理上一轮启动残留的临时缓存目录（仅限程序目录内的 webview2_lock_*），避免无限堆积；
+        /// 当前启动使用的 _udf 自身不动。被残留浏览器进程占用时删除会失败，忽略即可，下一轮启动会再次尝试清理。</summary>
+        private void CleanStaleCacheDirs()
         {
             try
             {
-                string baseDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "LunchHelper");
+                string baseDir = Path.GetDirectoryName(Application.ExecutablePath);
                 if (!Directory.Exists(baseDir)) return;
-                foreach (var dir in Directory.GetDirectories(baseDir, "LockWebView2*"))
+                foreach (var dir in Directory.GetDirectories(baseDir, "webview2_lock_*"))
                 {
                     if (string.Equals(dir, _udf, StringComparison.OrdinalIgnoreCase)) continue;
                     try { Directory.Delete(dir, true); }
@@ -202,6 +216,21 @@ namespace LunchHelper
                 }
             }
             catch { }
+        }
+
+        // 确保 UDF 目录可创建（位于程序自身目录内）。IsWebView2Available 已预检 exe 目录可写，通常成功；
+        // 仅当极少见的创建失败（如并发占用）才回退另一个一次性 GUID 目录（仍在程序目录内，webview2_lock_ 前缀），避免初始化卡死。
+        private void EnsureUdfWritable()
+        {
+            try
+            {
+                Directory.CreateDirectory(_udf);
+            }
+            catch
+            {
+                _udf = Path.Combine(Path.GetDirectoryName(_udf), "webview2_lock_" + Guid.NewGuid().ToString("N"));
+                try { Directory.CreateDirectory(_udf); } catch { }
+            }
         }
 
         private async Task InitializeWebView()
@@ -219,9 +248,9 @@ namespace LunchHelper
             try
             {
                 Logger.Info("WebView2 UserDataFolder: " + _udf);
-                // 诊断：与可用的配置页保持一致，使用默认环境（不附加 --no-sandbox/--disable-gpu 等自定义参数），
+                // 诊断：与配置页保持一致，使用默认环境（不附加 --no-sandbox/--disable-gpu 等自定义参数），
                 // 以判定「提权/非 Shell 启动」下的空白是否由自定义浏览器参数导致；UserDataFolder 已由
-                // CreationProperties 指定到 LocalAppData（始终可写）。
+                // CreationProperties 指定到程序自身目录（始终可写，且退出时清理）。
                 Logger.Debug("锁屏 WebView2 使用默认环境（与配置页一致），不附加自定义浏览器参数");
                 LogWebState("初始化前");
 
@@ -236,6 +265,7 @@ namespace LunchHelper
 
                 await _web.EnsureCoreWebView2Async(null);
                 Logger.Info("WebView2 环境创建成功，浏览器版本: " + (_web.CoreWebView2?.Environment?.BrowserVersionString ?? "?"));
+                StartupTimer.Mark("WebView2环境创建成功");
             }
             catch (Exception ex)
             {
@@ -364,7 +394,7 @@ namespace LunchHelper
             // 初始配置：标语 / 锁定秒数 / 动画开关（跟随 Windows“显示动画”）。
             // 直接写进页面，加载即可见，不依赖「JS 发 ready → C# 回推」回合；
             // 即便宿主桥接因任何原因未就绪，标语/倒计时/主题也不会回退到默认文案。
-            var cfg = ConfigManager.Load();
+            var cfg = _cfg ?? ConfigManager.Load();   // 复用 OnLoad 已加载的配置，避免重复读盘
             var cfgSb = new StringBuilder();
             cfgSb.Append("window.__LOCK_CONFIG__={");
             cfgSb.Append("\"slogan\":").Append(WebUiShell.JsonString(string.IsNullOrWhiteSpace(cfg.Slogan) ? "设备已锁定" : cfg.Slogan));
@@ -409,6 +439,7 @@ namespace LunchHelper
                     try { _renderWatchdog?.Stop(); } catch { }
                     LogWebState("ready");
                     Logger.Debug("锁屏页 ready 回执，WebView2 已确认渲染");
+                    StartupTimer.Mark("WebView2就绪(可输密码)");
                     try { _web.Visible = true; } catch { }   // 首显已绘制的暗色页面，避免首帧白闪
                     EnableLockTopmost();         // 渲染确认后再启用真置顶（uiAccess 环境）+ 强重绘，兼顾覆盖与渲染
                     PushConfig();
@@ -431,7 +462,7 @@ namespace LunchHelper
         private void PushConfig()
         {
             if (_web?.CoreWebView2 == null) return;
-            var cfg = ConfigManager.Load();
+            var cfg = _cfg ?? ConfigManager.Load();   // 复用 OnLoad 已加载的配置，避免重复读盘
             var sb = new StringBuilder();
             sb.Append("window.__applyLockConfig({");
             sb.Append("\"slogan\":").Append(WebUiShell.JsonString(string.IsNullOrWhiteSpace(cfg.Slogan) ? "设备已锁定" : cfg.Slogan));
@@ -546,7 +577,10 @@ namespace LunchHelper
         /// </summary>
         protected override void OnShown(EventArgs e)
         {
+            EnsureWebViewControl();   // 延迟创建 WebView2 控件，不再占用构造期，盖屏更早
+            StartupTimer.Mark("WebView2控件创建完成");
             base.OnShown(e);
+            StartupTimer.Mark("OnShown(开始初始化WebView2)");
             try { _web.CreateControl(); } catch { }
             Logger.Debug("[WebView2诊断] OnShown: _web.IsHandleCreated=" + _web.IsHandleCreated
                 + ", Handle=0x" + _web.Handle.ToString("X8")
@@ -964,6 +998,7 @@ namespace LunchHelper
             _guardianTimer.Start();
 
             Logger.Info("锁屏界面（WebView2）已加载，锁定 " + _remaining + " 秒");
+            StartupTimer.Mark("OnLoad完成");
         }
 
         private void OnMainTick(object sender, EventArgs e)

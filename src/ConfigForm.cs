@@ -120,12 +120,14 @@ namespace LunchHelper
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
                 BackColor = _scheme.Surface,
-                // 方案1：用户数据默认写在 exe 同目录（绿色便携，删目录即卸载）。
+                // 方案1：用户数据默认写在 exe 同目录内的独立子目录（绿色便携，删目录即卸载，不向系统目录写任何数据）。
                 // 若 exe 位于 C:\Program Files\ 等受保护目录且无写入权限，会在 InitializeWebView
                 // 里提前检测并引导用户「以管理员运行」或「移到其他目录」，绝不静默回退到 AppData。
                 CreationProperties = new CoreWebView2CreationProperties
                 {
-                    UserDataFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
+                    UserDataFolder = Path.Combine(
+                        Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
+                        "webview2_config")
                 }
             };
             _web.CoreWebView2InitializationCompleted += OnWebViewInit;
