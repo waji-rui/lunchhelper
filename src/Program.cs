@@ -70,6 +70,9 @@ namespace LunchHelper
     {
         private const string AppMutexName = "Global\\LunchHelper_App_Instance";
 
+        // -crashtest 诊断参数使用的 Shown 事件处理器引用。必须用字段保持强引用，避免 lambda 被 GC 回收。
+        private static EventHandler _crashTestHandler;
+
         [STAThread]
         static void Main(string[] args)
         {
@@ -80,19 +83,19 @@ namespace LunchHelper
             Application.ThreadException += OnThreadException;
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
-            // 崩溃测试诊断：仅当显式传入 -crashtest 时，在 UI 消息循环启动后的首个 Idle 事件
-            // 抛出一个测试异常，用于验证全局未处理异常能否被崩溃弹窗捕获（正常启动不受影响）。
-            if (Contains(args, "-crashtest"))
+            // 崩溃测试诊断：仅当显式传入 -crashtest 时，在首个窗体首次显示后
+            // 抛出一个测试异常，用于验证 Application.ThreadException 崩溃弹窗（正常启动不受影响）。
+            // 注意：必须在窗体 Shown 事件里抛，以确保异常发生在 WinForms 消息泵中并被 ThreadException 捕获；
+            // Application.Idle 中的异常行为不稳定，可能逃逸到 AppDomain.UnhandledException 导致显示为关键弹窗。
+            EventHandler crashTestHandler = null;
+            crashTestHandler = (s, e) =>
             {
-                Logger.Info("崩溃测试模式：UI 线程即将抛出测试异常以验证崩溃弹窗");
-                bool crashTestFired = false;
-                Application.Idle += (s, e) =>
-                {
-                    if (crashTestFired) return;
-                    crashTestFired = true;
-                    throw new InvalidOperationException("这是崩溃测试故意抛出的异常，用于验证崩溃报告弹窗（可忽略或重启）。");
-                };
-            }
+                var form = s as Form;
+                if (form != null) form.Shown -= crashTestHandler;
+                Logger.Info("崩溃测试模式：触发 UI 线程测试异常");
+                throw new InvalidOperationException("这是崩溃测试故意抛出的异常，用于验证崩溃报告弹窗（可忽略或重启）。");
+            };
+            _crashTestHandler = crashTestHandler;
 
             StartupTimer.Start();   // 启动毫秒级计时（Logger 尚未就绪，但 Stopwatch 已开始；最早落盘节点约为 Logger.Init 完成）
 
@@ -262,6 +265,7 @@ namespace LunchHelper
                         Form lockForm = webOk
                             ? (Form)new LockFormWeb(debug, guardianPid)
                             : (Form)new LockForm(debug, guardianPid);
+                        if (_crashTestHandler != null) lockForm.Shown += _crashTestHandler;
                         if (!webOk) Logger.Warn("WebView2 不可用或目录不可写，降级为原生锁屏");
                         StartupTimer.Mark("即将运行Application.Run(锁屏窗体)");
                         try { Application.Run(lockForm); }
@@ -289,7 +293,9 @@ namespace LunchHelper
                         Logger.Info("启动配置界面");
                     }
                     StartupTimer.Mark("即将运行Application.Run(配置窗体)");
-                    try { Application.Run(new ConfigForm(debug)); }
+                    var cfgForm = new ConfigForm(debug);
+                    if (_crashTestHandler != null) cfgForm.Shown += _crashTestHandler;
+                    try { Application.Run(cfgForm); }
                     catch (Exception ex)
                     {
                         Logger.Error("配置窗体运行期未处理异常: " + ex);
